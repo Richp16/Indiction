@@ -1,5 +1,7 @@
 const express = require('express');
 const { query } = require('../db');
+const { resolveEntryPayFields } = require('../services/entryPayCode');
+const { isHoursPayCode } = require('../config/paychex');
 
 const router = express.Router();
 
@@ -83,10 +85,10 @@ router.post('/', async (req, res) => {
       jobSiteId,
       payPeriodId: bodyPayPeriodId,
       paychexComponentId,
+      payCode,
       entryDate,
       hours,
       reimbursementAmount,
-      componentRate,
     } = req.body;
 
     let payPeriod;
@@ -121,14 +123,13 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Entry date does not fall within the current pay period' });
     }
 
-    const compResult = await query(
-      `SELECT name, rate FROM worker_pay_components
-       WHERE worker_id = $1 AND paychex_component_id = $2`,
-      [workerId, paychexComponentId]
-    );
-
-    const componentName = compResult.rows[0]?.name || paychexComponentId;
-    const resolvedRate = compResult.rows[0]?.rate ?? componentRate ?? null;
+    const resolved = await resolveEntryPayFields({
+      workerId,
+      payCode,
+      paychexComponentId: isHoursPayCode(payCode) ? undefined : paychexComponentId,
+      hours,
+      reimbursementAmount,
+    });
 
     const result = await query(
       `INSERT INTO time_entries (
@@ -141,12 +142,12 @@ router.post('/', async (req, res) => {
         workerId,
         jobSiteId,
         payPeriodId,
-        paychexComponentId,
-        componentName,
-        resolvedRate,
+        resolved.paychexComponentId,
+        resolved.componentName,
+        resolved.componentRate,
         entryDate,
-        hours || 0,
-        reimbursementAmount || 0,
+        resolved.hours,
+        resolved.reimbursementAmount,
         weekNumber,
         req.user.userId,
       ]
@@ -159,7 +160,8 @@ router.post('/', async (req, res) => {
         message: 'An entry already exists for this worker, job site, component, and date',
       });
     }
-    res.status(500).json({ message: error.message });
+    const status = error.statusCode || 500;
+    return res.status(status).json({ message: error.message });
   }
 });
 

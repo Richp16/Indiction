@@ -1,26 +1,13 @@
 const axios = require('axios');
 const { query } = require('../db');
 const { getToken } = require('./paychexAuth');
+const {
+  buildHoursEarningPayload,
+  buildReimbursementEarningPayload,
+} = require('./paychexEarnings');
+const { buildSubmissionPayload, validateExportConfig } = require('./paychexExport');
 
 const baseUrl = () => process.env.PAYCHEX_BASE_URL;
-
-const SUBMISSION_AGGREGATION_SQL = `
-SELECT
-  w.id                      AS worker_db_id,
-  w.paychex_worker_id,
-  w.first_name,
-  w.last_name,
-  js.paychex_job_id,
-  te.paychex_component_id,
-  SUM(te.hours)              AS total_hours,
-  SUM(te.reimbursement_amount) AS total_reimbursement
-FROM time_entries te
-JOIN workers w    ON te.worker_id    = w.id
-JOIN job_sites js ON te.job_site_id  = js.id
-WHERE te.pay_period_id = $1
-GROUP BY w.id, w.paychex_worker_id, w.first_name, w.last_name,
-         js.paychex_job_id, te.paychex_component_id
-`;
 
 async function paychexPost(path, body) {
   const token = await getToken();
@@ -65,7 +52,7 @@ async function submitWorkerPayroll({
   workerDbId,
   paychexWorkerId,
   workerName,
-  rows,
+  lines,
   skipLog = false,
 }) {
   let checkId = null;
@@ -82,28 +69,23 @@ async function submitWorkerPayroll({
       checkResponse.content?.[0]?.checkId ||
       checkResponse.paycheckId;
 
-    for (const row of rows) {
-      const baseBody = {
-        componentId: row.paychex_component_id,
-        effectOnPay: 'ADDITION',
-        jobId: row.paychex_job_id,
-      };
-
-      const totalHours = parseFloat(row.total_hours) || 0;
-      const totalReimbursement = parseFloat(row.total_reimbursement) || 0;
-
-      if (totalHours > 0) {
-        await paychexPost(`/checks/${checkId}/paycomponents`, {
-          ...baseBody,
-          payHours: totalHours,
+    for (const line of lines) {
+      if (line.entryType === 'HOURS' && line.totalHours > 0) {
+        const hoursPayload = buildHoursEarningPayload({
+          componentId: line.paychexComponentId,
+          jobId: line.paychexJobId,
+          payHours: line.totalHours,
         });
+        await paychexPost(`/checks/${checkId}/paycomponents`, hoursPayload);
       }
 
-      if (totalReimbursement > 0) {
-        await paychexPost(`/checks/${checkId}/paycomponents`, {
-          ...baseBody,
-          payAmount: totalReimbursement,
+      if (line.entryType === 'REIMBURSEMENT' && line.totalReimbursement > 0) {
+        const reimbPayload = buildReimbursementEarningPayload({
+          componentId: line.paychexComponentId,
+          jobId: line.paychexJobId,
+          payAmount: line.totalReimbursement,
         });
+        await paychexPost(`/checks/${checkId}/paycomponents`, reimbPayload);
       }
     }
 
@@ -162,23 +144,19 @@ async function submitPayroll(payPeriodId, submittedByUserId) {
   }
 
   const paychexPeriodId = periodResult.rows[0].paychex_period_id;
-  const aggResult = await query(SUBMISSION_AGGREGATION_SQL, [payPeriodId]);
+  const { workers, configErrors } = await buildSubmissionPayload(payPeriodId);
 
-  const byWorker = new Map();
-  for (const row of aggResult.rows) {
-    if (!byWorker.has(row.paychex_worker_id)) {
-      byWorker.set(row.paychex_worker_id, {
-        workerDbId: row.worker_db_id,
-        paychexWorkerId: row.paychex_worker_id,
-        workerName: `${row.first_name} ${row.last_name}`,
-        rows: [],
-      });
-    }
-    byWorker.get(row.paychex_worker_id).rows.push(row);
+  if (configErrors.length > 0) {
+    const summary = configErrors.map((e) => e.message).join('; ');
+    throw new Error(`Export configuration error: ${summary}`);
   }
 
   const results = [];
-  for (const worker of byWorker.values()) {
+  for (const worker of workers) {
+    if (worker.lines.length === 0) {
+      continue;
+    }
+
     const result = await submitWorkerPayroll({
       payPeriodId,
       paychexPeriodId,
@@ -186,7 +164,7 @@ async function submitPayroll(payPeriodId, submittedByUserId) {
       workerDbId: worker.workerDbId,
       paychexWorkerId: worker.paychexWorkerId,
       workerName: worker.workerName,
-      rows: worker.rows,
+      lines: worker.lines,
     });
     results.push(result);
   }
@@ -238,10 +216,17 @@ async function retryFailedSubmission(submissionLogId) {
   }
 
   const worker = workerResult.rows[0];
-  const aggResult = await query(SUBMISSION_AGGREGATION_SQL, [logEntry.pay_period_id]);
-  const workerRows = aggResult.rows.filter(
-    (row) => row.worker_db_id === worker.id
-  );
+  const { workers, configErrors } = await buildSubmissionPayload(logEntry.pay_period_id);
+
+  if (configErrors.length > 0) {
+    const summary = configErrors.map((e) => e.message).join('; ');
+    throw new Error(`Export configuration error: ${summary}`);
+  }
+
+  const workerPayload = workers.find((w) => w.workerDbId === worker.id);
+  if (!workerPayload || workerPayload.lines.length === 0) {
+    throw new Error('No exportable entries found for worker retry');
+  }
 
   const result = await submitWorkerPayroll({
     payPeriodId: logEntry.pay_period_id,
@@ -250,7 +235,7 @@ async function retryFailedSubmission(submissionLogId) {
     workerDbId: worker.id,
     paychexWorkerId: worker.paychex_worker_id,
     workerName: `${worker.first_name} ${worker.last_name}`,
-    rows: workerRows,
+    lines: workerPayload.lines,
     skipLog: true,
   });
 
@@ -334,18 +319,22 @@ async function validatePayroll(payPeriodId) {
      JOIN workers w ON te.worker_id = w.id
      WHERE te.pay_period_id = $1
      GROUP BY w.id, w.first_name, w.last_name
-     HAVING COALESCE(SUM(te.hours), 0) = 0`,
+     HAVING COALESCE(SUM(te.hours), 0) = 0
+       AND COALESCE(SUM(te.reimbursement_amount), 0) = 0`,
     [payPeriodId]
   );
 
   for (const row of zeroHoursResult.rows) {
     issues.push({
       type: 'warning',
-      message: 'Worker has zero total hours for this pay period',
+      message: 'Worker has zero total hours and reimbursements for this pay period',
       workerId: row.worker_id,
       workerName: `${row.first_name} ${row.last_name}`,
     });
   }
+
+  const exportConfigIssues = await validateExportConfig(payPeriodId);
+  issues.push(...exportConfigIssues);
 
   const syncResult = await query(
     `SELECT MAX(ran_at) AS last_sync

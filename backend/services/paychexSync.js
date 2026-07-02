@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { query } = require('../db');
 const { getToken } = require('./paychexAuth');
+const { shouldSyncPayComponent } = require('../config/paychex');
 
 const baseUrl = () => process.env.PAYCHEX_BASE_URL;
 const companyId = () => process.env.PAYCHEX_COMPANY_ID;
@@ -51,6 +52,55 @@ function addDays(dateStr, days) {
   const date = new Date(`${dateStr}T12:00:00`);
   date.setDate(date.getDate() + days);
   return date.toISOString().split('T')[0];
+}
+
+async function fetchWorkerHourlyRate(paychexWorkerId) {
+  try {
+    const rates = await paychexGet(`/workers/${paychexWorkerId}/compensation/payrates`);
+    const hourly = rates.find(
+      (rate) => rate.rateType === 'HOURLY_RATE' || rate.rateType === 'HOURLY'
+    );
+    if (!hourly) return null;
+    const amount = hourly.amount ?? hourly.rate ?? hourly.value;
+    return amount != null ? parseFloat(amount) : null;
+  } catch (error) {
+    console.log(`[sync] Could not fetch HOURLY_RATE for worker ${paychexWorkerId}: ${error.message}`);
+    return null;
+  }
+}
+
+async function syncWorkerPayRates() {
+  try {
+    const { rows: workers } = await query(
+      'SELECT id, paychex_worker_id FROM workers WHERE is_active = true'
+    );
+    let count = 0;
+
+    for (const worker of workers) {
+      const standardRate = await fetchWorkerHourlyRate(worker.paychex_worker_id);
+      if (standardRate == null) continue;
+
+      await query('UPDATE workers SET standard_rate = $1 WHERE id = $2', [
+        standardRate,
+        worker.id,
+      ]);
+      count += 1;
+    }
+
+    await logSync('worker_pay_rates', 'SUCCESS', `Synced ${count} worker hourly rates`);
+    return {
+      syncType: 'worker_pay_rates',
+      status: 'SUCCESS',
+      message: `Synced ${count} worker hourly rates`,
+    };
+  } catch (error) {
+    const status = error.response?.status;
+    const data = error.response?.data;
+    const message = data ? `Status ${status}: ${JSON.stringify(data)}` : (error.message || 'Unknown error');
+    console.error('Paychex sync error:', status, data || error.message);
+    await logSync('worker_pay_rates', 'FAILED', message);
+    return { syncType: 'worker_pay_rates', status: 'FAILED', message };
+  }
 }
 
 async function syncWorkers() {
@@ -122,6 +172,10 @@ async function syncPayComponents() {
       );
 
       for (const component of components) {
+        if (!shouldSyncPayComponent(component)) {
+          continue;
+        }
+
         const componentId = component.componentId;
         const name = component.name || '';
         const rate = component.value != null ? parseFloat(component.value) : null;
@@ -261,6 +315,7 @@ async function syncPayPeriods() {
 async function runFullSync() {
   const results = [];
   results.push(await syncWorkers());
+  results.push(await syncWorkerPayRates());
   results.push(await syncPayComponents());
   results.push(await syncJobSites());
   results.push(await syncPayPeriods());
@@ -270,7 +325,9 @@ async function runFullSync() {
 module.exports = {
   runFullSync,
   syncWorkers,
+  syncWorkerPayRates,
   syncPayComponents,
   syncJobSites,
   syncPayPeriods,
+  fetchWorkerHourlyRate,
 };

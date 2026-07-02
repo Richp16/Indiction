@@ -55,29 +55,44 @@ export default function Summary() {
             <tr>
               <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Worker</th>
               <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Job Site</th>
+              <th style={{ textAlign: 'right', borderBottom: '1px solid #ccc' }}>Rate</th>
               <th style={{ textAlign: 'right', borderBottom: '1px solid #ccc' }}>Total Hours</th>
+              <th style={{ textAlign: 'right', borderBottom: '1px solid #ccc' }}>Wages</th>
               <th style={{ textAlign: 'right', borderBottom: '1px solid #ccc' }}>Reimbursements</th>
+              <th style={{ textAlign: 'right', borderBottom: '1px solid #ccc' }}>Total</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => {
-              const workerName = row.workerName
-                || `${row.firstName || ''} ${row.lastName || ''}`.trim();
+              const workerName =
+                row.workerName || `${row.firstName || ''} ${row.lastName || ''}`.trim();
               const jobSiteName = row.jobSiteName || row.jobSite || '—';
-              const totalHours = row.totalHours ?? 0;
+              const totalHours = Number(row.totalHours) || 0;
+              const standardRate = Number(row.standardRate) || 0;
               const totalReimbursement =
                 (Number(row.truckReimbursement) || 0) +
                 (Number(row.otherReimbursements) || 0);
+              const wages = totalHours * standardRate;
+              const total = Number(row.total) || wages + totalReimbursement;
 
               return (
                 <tr key={`${workerName}-${jobSiteName}-${index}`}>
                   <td style={{ borderBottom: '1px solid #eee' }}>{workerName || '—'}</td>
                   <td style={{ borderBottom: '1px solid #eee' }}>{jobSiteName}</td>
                   <td style={{ textAlign: 'right', borderBottom: '1px solid #eee' }}>
-                    {Number(totalHours).toFixed(1)}
+                    {standardRate > 0 ? `$${standardRate.toFixed(2)}` : '—'}
+                  </td>
+                  <td style={{ textAlign: 'right', borderBottom: '1px solid #eee' }}>
+                    {totalHours.toFixed(1)}
+                  </td>
+                  <td style={{ textAlign: 'right', borderBottom: '1px solid #eee' }}>
+                    ${wages.toFixed(2)}
                   </td>
                   <td style={{ textAlign: 'right', borderBottom: '1px solid #eee' }}>
                     ${totalReimbursement.toFixed(2)}
+                  </td>
+                  <td style={{ textAlign: 'right', borderBottom: '1px solid #eee' }}>
+                    ${total.toFixed(2)}
                   </td>
                 </tr>
               );

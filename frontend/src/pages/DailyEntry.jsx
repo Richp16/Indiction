@@ -3,10 +3,16 @@ import { useAuth } from '../context/AuthContext';
 import { apiGet, apiPost } from '../api/client';
 
 const BASE_PAY_CODES = [
-  { id: 'REGULAR', label: 'Regular Hours', paychexComponentId: null },
-  { id: 'OT', label: 'Overtime', paychexComponentId: null },
-  { id: 'REIMBURSE', label: 'Reimbursement', paychexComponentId: '1080039968202498' },
+  { id: 'REGULAR', label: 'Regular Hours', type: 'HOURS' },
+  { id: 'OT', label: 'Overtime', type: 'HOURS' },
+  { id: 'PTO', label: 'Paid Time Off', type: 'HOURS' },
 ];
+
+const GENERIC_REIMBURSE_CODE = {
+  id: 'REIMBURSE',
+  label: 'Reimbursement',
+  type: 'REIMBURSEMENT',
+};
 
 function getToday() {
   return new Date().toISOString().split('T')[0];
@@ -21,8 +27,7 @@ export default function DailyEntry() {
   const [searchText, setSearchText] = useState('');
   const [workerResults, setWorkerResults] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState(null);
-  const [payCodes, setPayCodes] = useState(BASE_PAY_CODES);
-  const [workerComponents, setWorkerComponents] = useState([]);
+  const [reimbursementPayCodes, setReimbursementPayCodes] = useState([]);
   const [selectedPayCodeId, setSelectedPayCodeId] = useState('');
   const [entryDate, setEntryDate] = useState(getToday());
   const [hours, setHours] = useState('');
@@ -33,6 +38,11 @@ export default function DailyEntry() {
   const [error, setError] = useState('');
   const [savedMessage, setSavedMessage] = useState('');
   const debounceRef = useRef(null);
+
+  const reimbursementOptions = [GENERIC_REIMBURSE_CODE, ...reimbursementPayCodes];
+  const payCodes = [...BASE_PAY_CODES, ...reimbursementOptions];
+  const selectedPayCode = payCodes.find((code) => code.id === selectedPayCodeId);
+  const isReimbursementEntry = selectedPayCode?.type === 'REIMBURSEMENT';
 
   useEffect(() => {
     async function loadInitial() {
@@ -69,7 +79,10 @@ export default function DailyEntry() {
           `/api/workers?search=${encodeURIComponent(searchText.trim())}`,
           token
         );
-        setWorkerResults(workers);
+        const activePaidWorkers = workers.filter(
+          (w) => w.isActive !== false && w.standardRate != null
+        );
+        setWorkerResults(activePaidWorkers);
       } catch {
         setWorkerResults([]);
       } finally {
@@ -84,41 +97,38 @@ export default function DailyEntry() {
 
   useEffect(() => {
     if (!selectedWorker) {
-      setPayCodes(BASE_PAY_CODES);
-      setWorkerComponents([]);
+      setReimbursementPayCodes([]);
       setSelectedPayCodeId('');
       return;
     }
 
-    async function loadPayComponents() {
+    async function loadReimbursementComponents() {
       try {
         const components = await apiGet(
           `/api/workers/${selectedWorker.id}/pay-components`,
           token
         );
-        setWorkerComponents(components);
-        const combined = [
-          ...BASE_PAY_CODES,
-          ...components.map((c) => ({
+        setReimbursementPayCodes(
+          components.map((c) => ({
             id: c.paychexComponentId,
             label: c.name,
+            type: 'REIMBURSEMENT',
             paychexComponentId: c.paychexComponentId,
-          })),
-        ];
-        setPayCodes(combined);
+          }))
+        );
       } catch {
-        setWorkerComponents([]);
-        setPayCodes(BASE_PAY_CODES);
+        setReimbursementPayCodes([]);
       }
     }
 
-    loadPayComponents();
+    loadReimbursementComponents();
   }, [selectedWorker, token]);
 
   function selectWorker(worker) {
     setSelectedWorker(worker);
     setSearchText(`${worker.firstName} ${worker.lastName}`);
     setWorkerResults([]);
+    setSelectedPayCodeId('');
   }
 
   async function handleSubmit(event) {
@@ -127,37 +137,39 @@ export default function DailyEntry() {
     setSavedMessage('');
 
     const selectedJobSite = jobSites.find((s) => s.id === selectedJobSiteId);
-    const selectedPayCode = payCodes.find((p) => p.id === selectedPayCodeId);
 
     if (!period || !selectedJobSite || !selectedWorker || !selectedPayCode) {
       setError('Please complete all required fields');
       return;
     }
 
-    let paychexComponentId = selectedPayCode.paychexComponentId;
-    if (!paychexComponentId && workerComponents.length > 0) {
-      paychexComponentId = workerComponents[0].paychexComponentId;
-    }
-    if (!paychexComponentId) {
-      setError('Selected pay code has no Paychex component ID');
+    if (selectedPayCode.type === 'HOURS') {
+      if (!hours || Number(hours) <= 0) {
+        setError('Hours must be greater than zero for wage entries');
+        return;
+      }
+    } else if (!reimbursement || Number(reimbursement) <= 0) {
+      setError('Reimbursement amount must be greater than zero');
       return;
+    }
+
+    const payload = {
+      workerId: selectedWorker.id,
+      jobSiteId: selectedJobSite.id,
+      payPeriodId: period.id,
+      entryDate,
+      hours: isReimbursementEntry ? 0 : Number(hours) || 0,
+      reimbursementAmount: isReimbursementEntry ? Number(reimbursement) : 0,
+      payCode: selectedPayCodeId,
+    };
+
+    if (isReimbursementEntry && selectedPayCode.paychexComponentId) {
+      payload.paychexComponentId = selectedPayCode.paychexComponentId;
     }
 
     setSaving(true);
     try {
-      await apiPost(
-        '/api/entries',
-        {
-          workerId: selectedWorker.id,
-          jobSiteId: selectedJobSite.id,
-          payPeriodId: period.id,
-          paychexComponentId,
-          entryDate,
-          hours: Number(hours) || 0,
-          reimbursementAmount: Number(reimbursement) || 0,
-        },
-        token
-      );
+      await apiPost('/api/entries', payload, token);
       setHours('');
       setReimbursement('');
       setSavedMessage('Saved');
@@ -180,6 +192,10 @@ export default function DailyEntry() {
         <p>
           Pay period: {period.start_date} – {period.end_date}
         </p>
+      )}
+
+      {selectedWorker?.standardRate != null && (
+        <p>Worker hourly rate: ${Number(selectedWorker.standardRate).toFixed(2)}/hr</p>
       )}
 
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
@@ -240,6 +256,9 @@ export default function DailyEntry() {
                   >
                     {worker.firstName} {worker.lastName}
                     {worker.employeeCode ? ` — #${worker.employeeCode}` : ''}
+                    {worker.standardRate != null
+                      ? ` ($${Number(worker.standardRate).toFixed(2)}/hr)`
+                      : ''}
                   </button>
                 </li>
               ))}
@@ -258,11 +277,21 @@ export default function DailyEntry() {
             style={{ display: 'block', width: '100%', padding: '0.5rem' }}
           >
             <option value="">Select pay code…</option>
-            {payCodes.map((code) => (
-              <option key={code.id} value={code.id}>
-                {code.label}
-              </option>
-            ))}
+            <optgroup label="Hours">
+              {BASE_PAY_CODES.map((code) => (
+                <option key={code.id} value={code.id}>
+                  {code.label}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Reimbursements">
+              <option value={GENERIC_REIMBURSE_CODE.id}>{GENERIC_REIMBURSE_CODE.label}</option>
+              {reimbursementPayCodes.map((code) => (
+                <option key={code.id} value={code.id}>
+                  {code.label}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </div>
 
@@ -280,31 +309,37 @@ export default function DailyEntry() {
           />
         </div>
 
-        <div style={{ marginBottom: '1rem' }}>
-          <label htmlFor="hours">Hours</label>
-          <input
-            id="hours"
-            type="number"
-            step="0.5"
-            min="0"
-            value={hours}
-            onChange={(e) => setHours(e.target.value)}
-            style={{ display: 'block', width: '100%', padding: '0.5rem' }}
-          />
-        </div>
+        {!isReimbursementEntry && (
+          <div style={{ marginBottom: '1rem' }}>
+            <label htmlFor="hours">Hours</label>
+            <input
+              id="hours"
+              type="number"
+              step="0.5"
+              min="0.5"
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
+              required
+              style={{ display: 'block', width: '100%', padding: '0.5rem' }}
+            />
+          </div>
+        )}
 
-        <div style={{ marginBottom: '1rem' }}>
-          <label htmlFor="reimbursement">Reimbursement (optional)</label>
-          <input
-            id="reimbursement"
-            type="number"
-            step="0.01"
-            min="0"
-            value={reimbursement}
-            onChange={(e) => setReimbursement(e.target.value)}
-            style={{ display: 'block', width: '100%', padding: '0.5rem' }}
-          />
-        </div>
+        {isReimbursementEntry && (
+          <div style={{ marginBottom: '1rem' }}>
+            <label htmlFor="reimbursement">Reimbursement Amount ($)</label>
+            <input
+              id="reimbursement"
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={reimbursement}
+              onChange={(e) => setReimbursement(e.target.value)}
+              required
+              style={{ display: 'block', width: '100%', padding: '0.5rem' }}
+            />
+          </div>
+        )}
 
         <button type="submit" disabled={saving}>
           {saving ? 'Saving…' : 'Save Entry'}
