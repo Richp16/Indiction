@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS workers (
   employee_code       TEXT,
   first_name          TEXT NOT NULL,
   last_name           TEXT NOT NULL,
+  worker_type         TEXT DEFAULT 'EMPLOYEE',
+  exemption_type      TEXT DEFAULT 'NON_EXEMPT',
   is_active           BOOLEAN DEFAULT true,
   last_synced_at      TIMESTAMPTZ
 );

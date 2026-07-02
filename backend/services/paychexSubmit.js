@@ -74,6 +74,7 @@ async function submitWorkerPayroll({
     const checkResponse = await paychexPost(`/workers/${paychexWorkerId}/checks`, {
       payPeriodId: paychexPeriodId,
       checkCorrelationId: `${paychexWorkerId}-${paychexPeriodId}`,
+      blockAutoDistribution: true,
     });
 
     checkId =
@@ -85,24 +86,23 @@ async function submitWorkerPayroll({
       const baseBody = {
         componentId: row.paychex_component_id,
         effectOnPay: 'ADDITION',
-        organization: { jobId: row.paychex_job_id },
-        blockAutoDistribution: true,
+        jobId: row.paychex_job_id,
       };
 
       const totalHours = parseFloat(row.total_hours) || 0;
       const totalReimbursement = parseFloat(row.total_reimbursement) || 0;
 
       if (totalHours > 0) {
-        await paychexPost(`/checks/${checkId}/checkcomponents`, {
+        await paychexPost(`/checks/${checkId}/paycomponents`, {
           ...baseBody,
-          hours: totalHours,
+          payHours: totalHours,
         });
       }
 
       if (totalReimbursement > 0) {
-        await paychexPost(`/checks/${checkId}/checkcomponents`, {
+        await paychexPost(`/checks/${checkId}/paycomponents`, {
           ...baseBody,
-          amount: totalReimbursement,
+          payAmount: totalReimbursement,
         });
       }
     }
@@ -272,7 +272,19 @@ async function validatePayroll(payPeriodId) {
   const issues = [];
 
   const periodResult = await query(
-    'SELECT * FROM pay_periods WHERE id = $1',
+    `SELECT
+       id,
+       paychex_period_id,
+       start_date::text,
+       end_date::text,
+       submit_by_date::text,
+       pay_date::text,
+       status,
+       week1_start::text,
+       week1_end::text,
+       week2_start::text,
+       week2_end::text
+     FROM pay_periods WHERE id = $1`,
     [payPeriodId]
   );
 

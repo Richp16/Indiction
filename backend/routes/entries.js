@@ -4,12 +4,51 @@ const { query } = require('../db');
 const router = express.Router();
 
 async function getCurrentOpenPayPeriod() {
-  const result = await query(
-    `SELECT * FROM pay_periods
+  let result = await query(
+    `SELECT
+       id,
+       paychex_period_id,
+       start_date::text,
+       end_date::text,
+       submit_by_date::text,
+       pay_date::text,
+       status,
+       week1_start::text,
+       week1_end::text,
+       week2_start::text,
+       week2_end::text
+     FROM pay_periods
      WHERE status = 'OPEN'
+       AND start_date <= CURRENT_DATE
+       AND end_date >= CURRENT_DATE
      ORDER BY start_date DESC
      LIMIT 1`
   );
+
+  if (result.rows.length > 0) {
+    return result.rows[0];
+  }
+
+  result = await query(
+    `SELECT
+       id,
+       paychex_period_id,
+       start_date::text,
+       end_date::text,
+       submit_by_date::text,
+       pay_date::text,
+       status,
+       week1_start::text,
+       week1_end::text,
+       week2_start::text,
+       week2_end::text
+     FROM pay_periods
+     WHERE status = 'OPEN'
+       AND start_date > CURRENT_DATE
+     ORDER BY start_date ASC
+     LIMIT 1`
+  );
+
   return result.rows[0] || null;
 }
 
@@ -42,17 +81,39 @@ router.post('/', async (req, res) => {
     const {
       workerId,
       jobSiteId,
+      payPeriodId: bodyPayPeriodId,
       paychexComponentId,
-      componentName,
-      componentRate,
+      entryDate,
       hours,
       reimbursementAmount,
-      entryDate,
+      componentRate,
     } = req.body;
 
-    const payPeriod = await getCurrentOpenPayPeriod();
-    if (!payPeriod) {
-      return res.status(400).json({ message: 'No open pay period found' });
+    let payPeriod;
+    let payPeriodId = bodyPayPeriodId;
+
+    if (payPeriodId) {
+      const periodResult = await query(
+        `SELECT
+           id,
+           week1_start::text,
+           week1_end::text,
+           week2_start::text,
+           week2_end::text
+         FROM pay_periods
+         WHERE id = $1`,
+        [payPeriodId]
+      );
+      if (periodResult.rows.length === 0) {
+        return res.status(400).json({ message: 'Pay period not found' });
+      }
+      payPeriod = periodResult.rows[0];
+    } else {
+      payPeriod = await getCurrentOpenPayPeriod();
+      if (!payPeriod) {
+        return res.status(400).json({ message: 'No open pay period found' });
+      }
+      payPeriodId = payPeriod.id;
     }
 
     const weekNumber = determineWeekNumber(entryDate, payPeriod);
@@ -60,30 +121,38 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Entry date does not fall within the current pay period' });
     }
 
+    const compResult = await query(
+      `SELECT name, rate FROM worker_pay_components
+       WHERE worker_id = $1 AND paychex_component_id = $2`,
+      [workerId, paychexComponentId]
+    );
+
+    const componentName = compResult.rows[0]?.name || paychexComponentId;
+    const resolvedRate = compResult.rows[0]?.rate ?? componentRate ?? null;
+
     const result = await query(
       `INSERT INTO time_entries (
-         worker_id, job_site_id, pay_period_id, paychex_component_id,
-         component_name, component_rate, hours, reimbursement_amount,
-         entry_date, week_number, entered_by
+         worker_id, job_site_id, pay_period_id, paychex_component_id, component_name,
+         component_rate, entry_date, hours, reimbursement_amount, week_number, entered_by
        )
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         workerId,
         jobSiteId,
-        payPeriod.id,
+        payPeriodId,
         paychexComponentId,
         componentName,
-        componentRate ?? null,
-        hours,
-        reimbursementAmount ?? 0,
+        resolvedRate,
         entryDate,
+        hours || 0,
+        reimbursementAmount || 0,
         weekNumber,
         req.user.userId,
       ]
     );
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({ success: true, entry: result.rows[0] });
   } catch (error) {
     if (error.code === '23505') {
       return res.status(409).json({

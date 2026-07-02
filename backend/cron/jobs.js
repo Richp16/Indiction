@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const { query } = require('../db');
 const { runFullSync } = require('../services/paychexSync');
 const { retryFailedSubmission } = require('../services/paychexSubmit');
+const { subtractBusinessDays } = require('../utils/businessDays');
 
 function startCronJobs() {
   cron.schedule('0 6 * * *', async () => {
@@ -16,17 +17,26 @@ function startCronJobs() {
   cron.schedule('0 8 * * *', async () => {
     try {
       const result = await query(
-        `SELECT paychex_period_id, submit_by_date
+        `SELECT paychex_period_id, submit_by_date::text AS submit_by_date, pay_date::text AS pay_date
          FROM pay_periods
          WHERE status = 'OPEN'
-           AND submit_by_date <= CURRENT_DATE + INTERVAL '2 days'`
+           AND submit_by_date >= CURRENT_DATE
+           AND submit_by_date <= CURRENT_DATE + INTERVAL '3 days'`
       );
 
       for (const period of result.rows) {
-        const message = `PAYROLL DEADLINE APPROACHING: Pay period ${period.paychex_period_id} due ${period.submit_by_date}`;
+        const internalDeadline = subtractBusinessDays(period.pay_date, 3);
+        const message = `PAYROLL DEADLINE APPROACHING: Pay period ${period.paychex_period_id} due ${internalDeadline}`;
         await query(
-          'INSERT INTO sync_log (sync_type, status, message) VALUES ($1, $2, $3)',
-          ['deadline_reminder', 'WARNING', message]
+          `INSERT INTO sync_log (sync_type, status, message)
+           SELECT $1, $2, $3
+           WHERE NOT EXISTS (
+             SELECT 1 FROM sync_log
+             WHERE sync_type = 'deadline_reminder'
+               AND message LIKE $4
+               AND ran_at >= CURRENT_DATE
+           )`,
+          ['deadline_reminder', 'WARNING', message, `%${period.paychex_period_id}%`]
         );
         console.log('[cron]', message);
       }

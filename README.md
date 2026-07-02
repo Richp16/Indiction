@@ -90,7 +90,7 @@ npm start
 |---|---|---|---|
 | POST | `/api/auth/login` | Public | — |
 | GET | `/api/workers` | JWT | Any |
-| GET | `/api/workers/:id/paycomponents` | JWT | Any |
+| GET | `/api/workers/:id/pay-components` | JWT | Any |
 | GET | `/api/job-sites` | JWT | Any |
 | POST | `/api/entries` | JWT | Any |
 | GET | `/api/entries` | JWT | Any |
@@ -106,3 +106,50 @@ npm start
 | GET | `/api/sync/status` | JWT | system_admin |
 | GET | `/api/settings/workers` | JWT | system_admin |
 | GET | `/api/settings/job-sites` | JWT | system_admin |
+
+## Frontend Setup
+
+### Install
+
+```bash
+cd frontend
+npm install
+```
+
+No additional environment variables are required for local development. The Vite dev server proxies `/api` requests to `http://localhost:3000`.
+
+### Start the Dev Server
+
+```bash
+npm run dev
+```
+
+The app runs at `http://localhost:5173`.
+
+### Run Backend and Frontend Together
+
+Open two terminals from the project root:
+
+**Terminal 1 — Backend:**
+```bash
+cd backend
+npm run dev
+```
+
+**Terminal 2 — Frontend:**
+```bash
+cd frontend
+npm run dev
+```
+
+Ensure the backend `.env` is configured and PostgreSQL is running before starting.
+
+### Production Build
+
+```bash
+cd frontend
+npm run build
+npm run preview
+```
+
+For production, configure the frontend to call your API base URL (update `src/api/client.js` `baseURL` if not using the Vite proxy).

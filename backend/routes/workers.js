@@ -34,7 +34,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/:id/paycomponents', async (req, res) => {
+router.get('/:id/pay-components', async (req, res) => {
   try {
     const result = await query(
       `SELECT paychex_component_id, name, rate

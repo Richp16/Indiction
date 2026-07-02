@@ -32,6 +32,7 @@ app.use('/api/job-sites', jobSitesRoutes);
 app.use('/api/entries', entriesRoutes);
 app.use('/api/summary', summaryRoutes);
 app.get('/api/pay-periods/current', summaryRoutes.getCurrentPayPeriod);
+app.get('/api/alerts', summaryRoutes.getAlerts);
 app.use('/api/submit', submitRoutes);
 app.use('/api', settingsRoutes);
 

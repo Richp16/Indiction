@@ -8,14 +8,17 @@ const companyId = () => process.env.PAYCHEX_COMPANY_ID;
 async function paychexGet(path) {
   const token = await getToken();
   const items = [];
-  let url = `${baseUrl()}${path}`;
   let offset = 0;
   const limit = 100;
+  let hasMore = true;
 
-  while (url) {
+  while (hasMore) {
+    const separator = path.includes('?') ? '&' : '?';
+    const url = `${baseUrl()}${path}${separator}offset=${offset}&limit=${limit}`;
+    console.log('Paychex GET:', url);
+
     const response = await axios.get(url, {
       headers: { Authorization: `Bearer ${token}` },
-      params: url.includes('?') ? undefined : { offset, limit },
     });
 
     const content = response.data.content || [];
@@ -24,9 +27,8 @@ async function paychexGet(path) {
     const pagination = response.data.metadata?.pagination;
     if (pagination && pagination.itemCount > offset + limit) {
       offset += limit;
-      url = `${baseUrl()}${path}${path.includes('?') ? '&' : '?'}offset=${offset}&limit=${limit}`;
     } else {
-      url = null;
+      hasMore = false;
     }
   }
 
@@ -43,70 +45,6 @@ async function logSync(syncType, status, message) {
 function parseDate(value) {
   if (!value) return null;
   return value.split('T')[0];
-}
-
-function getNthWeekdayOfMonth(year, month, weekday, n) {
-  const date = new Date(year, month, 1);
-  let count = 0;
-  while (date.getMonth() === month) {
-    if (date.getDay() === weekday) {
-      count += 1;
-      if (count === n) {
-        return new Date(date);
-      }
-    }
-    date.setDate(date.getDate() + 1);
-  }
-  return null;
-}
-
-function getLastWeekdayOfMonth(year, month, weekday) {
-  const date = new Date(year, month + 1, 0);
-  while (date.getDay() !== weekday) {
-    date.setDate(date.getDate() - 1);
-  }
-  return date;
-}
-
-function getFederalHolidays(year) {
-  const holidays = [
-    new Date(year, 0, 1),
-    getLastWeekdayOfMonth(year, 4, 1),
-    new Date(year, 6, 4),
-    getNthWeekdayOfMonth(year, 8, 1, 1),
-    getNthWeekdayOfMonth(year, 10, 4, 4),
-    new Date(year, 11, 25),
-  ];
-  return holidays.map((d) => d.toISOString().split('T')[0]);
-}
-
-function isBusinessDay(dateStr, holidaySet) {
-  const date = new Date(`${dateStr}T12:00:00`);
-  const day = date.getDay();
-  if (day === 0 || day === 6) return false;
-  return !holidaySet.has(dateStr);
-}
-
-function subtractBusinessDays(dateStr, businessDays) {
-  const year = new Date(`${dateStr}T12:00:00`).getFullYear();
-  const holidays = new Set([
-    ...getFederalHolidays(year),
-    ...getFederalHolidays(year - 1),
-    ...getFederalHolidays(year + 1),
-  ]);
-
-  const date = new Date(`${dateStr}T12:00:00`);
-  let remaining = businessDays;
-
-  while (remaining > 0) {
-    date.setDate(date.getDate() - 1);
-    const current = date.toISOString().split('T')[0];
-    if (isBusinessDay(current, holidays)) {
-      remaining -= 1;
-    }
-  }
-
-  return date.toISOString().split('T')[0];
 }
 
 function addDays(dateStr, days) {
@@ -127,16 +65,34 @@ async function syncWorkers() {
       const employeeCode = worker.employeeId || null;
       const isActive = worker.currentStatus?.statusType === 'ACTIVE';
 
+      if (worker.workerType && worker.workerType !== 'EMPLOYEE') {
+        console.log(`[sync] Skipping non-employee: ${firstName} ${lastName} (${worker.workerType})`);
+        continue;
+      }
+
+      if (worker.exemptionType === 'EXEMPT') {
+        console.log(`[sync] Skipping exempt/salaried worker: ${firstName} ${lastName}`);
+        continue;
+      }
+
+      const workerType = worker.workerType || 'EMPLOYEE';
+      const exemptionType = worker.exemptionType || 'NON_EXEMPT';
+
       await query(
-        `INSERT INTO workers (paychex_worker_id, first_name, last_name, employee_code, is_active, last_synced_at)
-         VALUES ($1, $2, $3, $4, $5, now())
+        `INSERT INTO workers (
+           paychex_worker_id, first_name, last_name, employee_code,
+           worker_type, exemption_type, is_active, last_synced_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now())
          ON CONFLICT (paychex_worker_id) DO UPDATE SET
            first_name = EXCLUDED.first_name,
            last_name = EXCLUDED.last_name,
            employee_code = EXCLUDED.employee_code,
+           worker_type = EXCLUDED.worker_type,
+           exemption_type = EXCLUDED.exemption_type,
            is_active = EXCLUDED.is_active,
            last_synced_at = now()`,
-        [paychexWorkerId, firstName, lastName, employeeCode, isActive]
+        [paychexWorkerId, firstName, lastName, employeeCode, workerType, exemptionType, isActive]
       );
       count += 1;
     }
@@ -144,7 +100,10 @@ async function syncWorkers() {
     await logSync('workers', 'SUCCESS', `Synced ${count} workers`);
     return { syncType: 'workers', status: 'SUCCESS', message: `Synced ${count} workers` };
   } catch (error) {
-    const message = error.message || 'Unknown error';
+    const status = error.response?.status;
+    const data = error.response?.data;
+    const message = data ? `Status ${status}: ${JSON.stringify(data)}` : (error.message || 'Unknown error');
+    console.error('Paychex sync error:', status, data || error.message);
     await logSync('workers', 'FAILED', message);
     return { syncType: 'workers', status: 'FAILED', message };
   }
@@ -187,7 +146,10 @@ async function syncPayComponents() {
       message: `Synced ${count} pay components`,
     };
   } catch (error) {
-    const message = error.message || 'Unknown error';
+    const status = error.response?.status;
+    const data = error.response?.data;
+    const message = data ? `Status ${status}: ${JSON.stringify(data)}` : (error.message || 'Unknown error');
+    console.error('Paychex sync error:', status, data || error.message);
     await logSync('pay_components', 'FAILED', message);
     return { syncType: 'pay_components', status: 'FAILED', message };
   }
@@ -201,7 +163,7 @@ async function syncJobSites() {
     for (const job of jobs) {
       const paychexJobId = job.jobId;
       const name = job.jobName || job.name || '';
-      const isActive = job.endDate ? false : true;
+      const isActive = job.endDate ? new Date(job.endDate) > new Date() : true;
 
       await query(
         `INSERT INTO job_sites (paychex_job_id, name, is_active, last_synced_at)
@@ -218,7 +180,10 @@ async function syncJobSites() {
     await logSync('job_sites', 'SUCCESS', `Synced ${count} job sites`);
     return { syncType: 'job_sites', status: 'SUCCESS', message: `Synced ${count} job sites` };
   } catch (error) {
-    const message = error.message || 'Unknown error';
+    const status = error.response?.status;
+    const data = error.response?.data;
+    const message = data ? `Status ${status}: ${JSON.stringify(data)}` : (error.message || 'Unknown error');
+    console.error('Paychex sync error:', status, data || error.message);
     await logSync('job_sites', 'FAILED', message);
     return { syncType: 'job_sites', status: 'FAILED', message };
   }
@@ -236,13 +201,14 @@ async function syncPayPeriods() {
       const startDate = parseDate(period.startDate);
       const endDate = parseDate(period.endDate);
       const payDate = parseDate(period.checkDate);
-      const status = period.status || 'OPEN';
+      const rawStatus = period.status || 'INITIAL';
+      const status = (rawStatus === 'INITIAL' || rawStatus === 'CURRENT') ? 'OPEN' : rawStatus;
 
       const week1Start = startDate;
       const week1End = addDays(startDate, 6);
       const week2Start = addDays(startDate, 7);
       const week2End = endDate;
-      const submitByDate = subtractBusinessDays(payDate, 3);
+      const submitByDate = parseDate(period.submitByDate);
 
       await query(
         `INSERT INTO pay_periods (
@@ -283,7 +249,10 @@ async function syncPayPeriods() {
       message: `Synced ${count} pay periods`,
     };
   } catch (error) {
-    const message = error.message || 'Unknown error';
+    const status = error.response?.status;
+    const data = error.response?.data;
+    const message = data ? `Status ${status}: ${JSON.stringify(data)}` : (error.message || 'Unknown error');
+    console.error('Paychex sync error:', status, data || error.message);
     await logSync('pay_periods', 'FAILED', message);
     return { syncType: 'pay_periods', status: 'FAILED', message };
   }
