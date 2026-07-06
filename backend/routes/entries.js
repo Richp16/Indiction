@@ -1,6 +1,7 @@
 const express = require('express');
 const { query } = require('../db');
-const { resolveEntryPayFields } = require('../services/entryPayCode');
+const { requireRole } = require('../middleware/roleGuard');
+const { resolveEntryPayFields, getWorkerWeeklyHours } = require('../services/entryPayCode');
 const { isHoursPayCode } = require('../config/paychex');
 
 const router = express.Router();
@@ -89,6 +90,8 @@ function payTypeConstraintIncludesPayComponent(constraint) {
   );
 }
 
+const OT_WEEKLY_CAP = 40;
+
 router.post('/', async (req, res) => {
   try {
     const {
@@ -141,6 +144,102 @@ router.post('/', async (req, res) => {
       hours,
       reimbursementAmount,
     });
+
+    if (resolved.paychexComponentId === 'REGULAR') {
+      const workedSoFar = await getWorkerWeeklyHours(workerId, entryDate, payPeriodId);
+      const remainingRegular = Math.max(0, OT_WEEKLY_CAP - workedSoFar);
+      const requestedHours = resolved.hours;
+
+      if (workedSoFar >= OT_WEEKLY_CAP) {
+        resolved.paychexComponentId = 'OT';
+        resolved.componentName = 'Overtime';
+      } else if (requestedHours > remainingRegular) {
+        const regularHours = remainingRegular;
+        const otHours = requestedHours - remainingRegular;
+
+        const regularDupCheck = await query(
+          `SELECT id FROM time_entries
+           WHERE worker_id = $1 AND job_site_id = $2 AND entry_date = $3
+             AND pay_period_id = $4 AND paychex_component_id = 'REGULAR'`,
+          [workerId, jobSiteId, entryDate, payPeriodId]
+        );
+
+        const otDupCheck = await query(
+          `SELECT id FROM time_entries
+           WHERE worker_id = $1 AND job_site_id = $2 AND entry_date = $3
+             AND pay_period_id = $4 AND paychex_component_id = 'OT'`,
+          [workerId, jobSiteId, entryDate, payPeriodId]
+        );
+
+        if (regularDupCheck.rows.length > 0 && otDupCheck.rows.length > 0) {
+          return res.status(409).json({
+            message:
+              'Hours already logged for this worker, job site, and date for both Regular and Overtime. ' +
+              'Edit existing entries in the Summary tab to adjust hours.',
+          });
+        }
+
+        let regularEntry = null;
+        if (regularHours > 0 && regularDupCheck.rows.length === 0) {
+          const regularResult = await query(
+            `INSERT INTO time_entries (
+               worker_id, job_site_id, pay_period_id, paychex_component_id,
+               component_name, component_rate, entry_date, hours,
+               reimbursement_amount, week_number, entered_by
+             ) VALUES ($1, $2, $3, 'REGULAR', $4, $5, $6, $7, 0, $8, $9)
+             RETURNING *`,
+            [
+              workerId,
+              jobSiteId,
+              payPeriodId,
+              resolved.componentName,
+              resolved.componentRate,
+              entryDate,
+              regularHours,
+              weekNumber,
+              req.user.userId,
+            ]
+          );
+          regularEntry = regularResult.rows[0];
+        }
+
+        const otHoursToInsert =
+          regularDupCheck.rows.length > 0 ? requestedHours : otHours;
+
+        let otEntry = null;
+        if (otHoursToInsert > 0 && otDupCheck.rows.length === 0) {
+          const otResult = await query(
+            `INSERT INTO time_entries (
+               worker_id, job_site_id, pay_period_id, paychex_component_id,
+               component_name, component_rate, entry_date, hours,
+               reimbursement_amount, week_number, entered_by
+             ) VALUES ($1, $2, $3, 'OT', 'Overtime', $4, $5, $6, 0, $7, $8)
+             RETURNING *`,
+            [
+              workerId,
+              jobSiteId,
+              payPeriodId,
+              resolved.componentRate,
+              entryDate,
+              otHoursToInsert,
+              weekNumber,
+              req.user.userId,
+            ]
+          );
+          otEntry = otResult.rows[0];
+        }
+
+        const loggedRegularHours = regularEntry ? regularHours : 0;
+        const loggedOtHours = otEntry ? otHoursToInsert : 0;
+
+        return res.status(201).json({
+          success: true,
+          split: true,
+          message: `Hours split: ${loggedRegularHours} regular + ${loggedOtHours} OT (worker reached 40-hour weekly limit).`,
+          entries: [regularEntry, otEntry].filter(Boolean),
+        });
+      }
+    }
 
     const duplicateCheck = await query(
       `SELECT id FROM time_entries
@@ -250,7 +349,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {
     const { hours, reimbursementAmount } = req.body;
 
@@ -286,7 +385,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {
     const entryResult = await query(
       `SELECT te.*, pp.status AS pay_period_status

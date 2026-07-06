@@ -1,42 +1,12 @@
-import { Routes, Route, Navigate, Link } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import DailyEntry from './pages/DailyEntry';
-import Summary from './pages/Summary';
-import Submit from './pages/Submit';
+import SummaryPage from './pages/SummaryPage';
+import PayrollPage from './pages/PayrollPage';
+import ManageUsers from './pages/ManageUsers';
 import Settings from './pages/Settings';
-
-function AppLayout({ children }) {
-  const { logout, user } = useAuth();
-
-  return (
-    <div>
-      <nav style={{ padding: '1rem', borderBottom: '1px solid #ccc', marginBottom: '1rem' }}>
-        <Link to="/daily" style={{ marginRight: '1rem' }}>Daily</Link>
-        <Link to="/summary" style={{ marginRight: '1rem' }}>Summary</Link>
-        <Link to="/submit" style={{ marginRight: '1rem' }}>Submit</Link>
-        <Link to="/settings" style={{ marginRight: '1rem' }}>Settings</Link>
-        {user?.email && <span style={{ marginRight: '1rem' }}>{user.email}</span>}
-        <button type="button" onClick={logout}>Logout</button>
-      </nav>
-      <main style={{ padding: '0 1rem 2rem' }}>{children}</main>
-    </div>
-  );
-}
-
-function ProtectedRoute({ children }) {
-  const { token, isLoading } = useAuth();
-
-  if (isLoading) {
-    return <p>Loading…</p>;
-  }
-
-  if (!token) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <AppLayout>{children}</AppLayout>;
-}
 
 function HomeRedirect() {
   const { token, isLoading } = useAuth();
@@ -45,7 +15,7 @@ function HomeRedirect() {
     return <p>Loading…</p>;
   }
 
-  return <Navigate to={token ? '/daily' : '/login'} replace />;
+  return <Navigate to={token ? '/daily-entry' : '/login'} replace />;
 }
 
 export default function App() {
@@ -59,41 +29,51 @@ export default function App() {
     <Routes>
       <Route
         path="/login"
-        element={token ? <Navigate to="/daily" replace /> : <Login />}
+        element={token ? <Navigate to="/daily-entry" replace /> : <Login />}
       />
       <Route path="/" element={<HomeRedirect />} />
       <Route
-        path="/daily"
+        path="/daily-entry"
         element={
           <ProtectedRoute>
             <DailyEntry />
           </ProtectedRoute>
         }
       />
+      <Route path="/daily" element={<Navigate to="/daily-entry" replace />} />
       <Route
         path="/summary"
         element={
           <ProtectedRoute>
-            <Summary />
+            <SummaryPage />
           </ProtectedRoute>
         }
       />
       <Route
-        path="/submit"
+        path="/payroll"
         element={
-          <ProtectedRoute>
-            <Submit />
+          <ProtectedRoute requireAdmin>
+            <PayrollPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/users"
+        element={
+          <ProtectedRoute requireAdmin>
+            <ManageUsers />
           </ProtectedRoute>
         }
       />
       <Route
         path="/settings"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requireAdmin>
             <Settings />
           </ProtectedRoute>
         }
       />
+      <Route path="/submit" element={<Navigate to="/payroll" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('../db');
 const { getAggregatedSummary, generateCSV } = require('../services/aggregation');
 const { subtractBusinessDays } = require('../utils/businessDays');
+const { requireRole } = require('../middleware/roleGuard');
 
 const router = express.Router();
 
@@ -61,7 +62,7 @@ async function getCurrentPayPeriod(req, res) {
 
 router.get('/current', getCurrentPayPeriod);
 
-router.get('/csv', async (req, res) => {
+router.get('/csv', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {
     const { payPeriodId } = req.query;
     if (!payPeriodId) {

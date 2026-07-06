@@ -43,8 +43,11 @@ export function AuthProvider({ children }) {
     sessionStorage.removeItem(USER_KEY);
   }
 
+  const isAdmin =
+    user?.role === 'system_admin' || user?.role === 'payroll_admin';
+
   return (
-    <AuthContext.Provider value={{ token, user, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ token, user, isAdmin, login, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

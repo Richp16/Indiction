@@ -18,6 +18,21 @@ function getToday() {
   return new Date().toISOString().split('T')[0];
 }
 
+function formatWeekdayDate(dateStr) {
+  const date = new Date(`${dateStr}T12:00:00`);
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function remainingOtColor(remaining) {
+  if (remaining === 0) return '#dc2626';
+  if (remaining <= 8) return '#b45309';
+  return '#15803d';
+}
+
 export default function DailyEntry() {
   const { token } = useAuth();
 
@@ -37,6 +52,9 @@ export default function DailyEntry() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [savedMessage, setSavedMessage] = useState('');
+  const [weeklyHours, setWeeklyHours] = useState(null);
+  const [weeklyHoursLoading, setWeeklyHoursLoading] = useState(false);
+  const [weeklyHoursRefresh, setWeeklyHoursRefresh] = useState(0);
   const debounceRef = useRef(null);
 
   const reimbursementOptions = [GENERIC_REIMBURSE_CODE, ...reimbursementPayCodes];
@@ -124,6 +142,31 @@ export default function DailyEntry() {
     loadReimbursementComponents();
   }, [selectedWorker, token]);
 
+  useEffect(() => {
+    if (!selectedWorker || !period) {
+      setWeeklyHours(null);
+      return;
+    }
+
+    async function fetchWeeklyHours() {
+      setWeeklyHoursLoading(true);
+      try {
+        const data = await apiGet(
+          `/api/workers/${selectedWorker.id}/weekly-hours` +
+            `?date=${entryDate}&payPeriodId=${period.id}`,
+          token
+        );
+        setWeeklyHours(data);
+      } catch {
+        setWeeklyHours(null);
+      } finally {
+        setWeeklyHoursLoading(false);
+      }
+    }
+
+    fetchWeeklyHours();
+  }, [selectedWorker, entryDate, period, token, weeklyHoursRefresh]);
+
   function selectWorker(worker) {
     setSelectedWorker(worker);
     setSearchText(`${worker.firstName} ${worker.lastName}`);
@@ -169,10 +212,15 @@ export default function DailyEntry() {
 
     setSaving(true);
     try {
-      await apiPost('/api/entries', payload, token);
+      const result = await apiPost('/api/entries', payload, token);
       setHours('');
       setReimbursement('');
-      setSavedMessage('Saved');
+      if (result?.split) {
+        setSavedMessage(result.message);
+      } else {
+        setSavedMessage('Entry saved successfully.');
+      }
+      setWeeklyHoursRefresh((n) => n + 1);
     } catch (err) {
       setError(err.message || 'Failed to save entry');
     } finally {
@@ -265,6 +313,40 @@ export default function DailyEntry() {
             </ul>
           )}
         </div>
+
+        {selectedWorker && (
+          <div
+            style={{
+              marginBottom: '1rem',
+              padding: '0.75rem',
+              background: '#f0f4f8',
+              borderRadius: '6px',
+              fontSize: '0.875rem',
+              lineHeight: 1.5,
+            }}
+          >
+            {weeklyHoursLoading && <p style={{ margin: 0 }}>Loading hours…</p>}
+            {!weeklyHoursLoading && weeklyHours && (
+              <>
+                <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>
+                  Week of {formatWeekdayDate(weeklyHours.weekStart)} –{' '}
+                  {formatWeekdayDate(weeklyHours.weekEnd)}
+                </p>
+                <p style={{ margin: 0 }}>Regular: {weeklyHours.regularHours} hrs</p>
+                <p style={{ margin: 0 }}>Overtime: {weeklyHours.otHours} hrs</p>
+                <p
+                  style={{
+                    margin: '0.25rem 0 0',
+                    color: remainingOtColor(weeklyHours.remainingBeforeOT),
+                    fontWeight: 500,
+                  }}
+                >
+                  Remaining before OT: {weeklyHours.remainingBeforeOT} hrs
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         <div style={{ marginBottom: '1rem' }}>
           <label htmlFor="pay-code">Pay code</label>

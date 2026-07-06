@@ -25,6 +25,28 @@ export async function apiGet(path, token) {
   return parseResponse(res);
 }
 
+export async function apiPatch(path, body, token) {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  return parseResponse(res);
+}
+
+export async function apiDelete(path, token) {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'DELETE',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  return parseResponse(res);
+}
+
 export async function apiPost(path, body, token) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',

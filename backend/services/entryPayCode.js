@@ -95,4 +95,38 @@ async function resolveEntryPayFields({
   );
 }
 
-module.exports = { resolveEntryPayFields, EntryResolveError };
+function getWeekBounds(dateStr) {
+  const date = new Date(`${dateStr}T12:00:00Z`);
+  const day = date.getUTCDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(date);
+  monday.setUTCDate(date.getUTCDate() + diffToMonday);
+  const friday = new Date(monday);
+  friday.setUTCDate(monday.getUTCDate() + 4);
+  return {
+    monday: monday.toISOString().split('T')[0],
+    friday: friday.toISOString().split('T')[0],
+  };
+}
+
+async function getWorkerWeeklyHours(workerId, entryDate, payPeriodId) {
+  const { monday, friday } = getWeekBounds(entryDate);
+  const result = await query(
+    `SELECT COALESCE(SUM(hours), 0) AS total_hours
+     FROM time_entries
+     WHERE worker_id = $1
+       AND pay_period_id = $2
+       AND entry_date >= $3
+       AND entry_date <= $4
+       AND paychex_component_id IN ('REGULAR', 'OT')`,
+    [workerId, payPeriodId, monday, friday]
+  );
+  return Number(result.rows[0].total_hours);
+}
+
+module.exports = {
+  resolveEntryPayFields,
+  EntryResolveError,
+  getWorkerWeeklyHours,
+  getWeekBounds,
+};

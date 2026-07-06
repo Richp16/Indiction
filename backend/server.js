@@ -10,6 +10,7 @@ const entriesRoutes = require('./routes/entries');
 const summaryRoutes = require('./routes/summary');
 const submitRoutes = require('./routes/submit');
 const settingsRoutes = require('./routes/settings');
+const usersRoutes = require('./routes/users');
 const { runFullSync } = require('./services/paychexSync');
 const { startCronJobs } = require('./cron/jobs');
 
@@ -36,6 +37,7 @@ app.get('/api/pay-periods/current', summaryRoutes.getCurrentPayPeriod);
 app.get('/api/alerts', summaryRoutes.getAlerts);
 app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/submit', submitRoutes);
+app.use('/api/users', usersRoutes);
 app.use('/api', settingsRoutes);
 
 async function startup() {
