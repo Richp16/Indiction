@@ -5,7 +5,7 @@ const {
   buildHoursEarningPayload,
   buildReimbursementEarningPayload,
 } = require('./paychexEarnings');
-const { buildSubmissionPayload, validateExportConfig } = require('./paychexExport');
+const { buildSubmissionPayload, validateExportConfig } = require('./paychexApiPayload');
 
 const baseUrl = () => process.env.PAYCHEX_BASE_URL;
 

@@ -78,6 +78,17 @@ function determineWeekNumber(entryDate, payPeriod) {
   return null;
 }
 
+function payTypeConstraintIncludesPayComponent(constraint) {
+  if (!constraint) return false;
+  const name = constraint.toLowerCase();
+  return (
+    name.includes('paychex_component') ||
+    name.includes('component_unique') ||
+    name.includes('paycode') ||
+    name.includes('pay_code')
+  );
+}
+
 router.post('/', async (req, res) => {
   try {
     const {
@@ -131,6 +142,32 @@ router.post('/', async (req, res) => {
       reimbursementAmount,
     });
 
+    const duplicateCheck = await query(
+      `SELECT id FROM time_entries
+       WHERE worker_id = $1
+         AND job_site_id = $2
+         AND entry_date = $3
+         AND pay_period_id = $4
+         AND paychex_component_id = $5`,
+      [
+        workerId,
+        jobSiteId,
+        entryDate,
+        payPeriodId,
+        resolved.paychexComponentId,
+      ]
+    );
+
+    if (duplicateCheck.rows.length > 0) {
+      return res.status(409).json({
+        message:
+          'An entry already exists for this worker, job site, pay code, and date. ' +
+          'To add different pay types (e.g., Regular + Overtime), submit a separate entry with a different pay code.',
+      });
+    }
+
+    // NOTE: DB unique constraint must include paychex_component_id (logical pay type key).
+    // See db/migrations/001_add_pay_code_to_time_entries_unique_constraint.sql
     const result = await query(
       `INSERT INTO time_entries (
          worker_id, job_site_id, pay_period_id, paychex_component_id, component_name,
@@ -156,8 +193,18 @@ router.post('/', async (req, res) => {
     res.status(201).json({ success: true, entry: result.rows[0] });
   } catch (error) {
     if (error.code === '23505') {
+      if (!payTypeConstraintIncludesPayComponent(error.constraint)) {
+        return res.status(409).json({
+          error:
+            'Duplicate entry detected. If you are trying to add a different pay type for this ' +
+            'worker on the same day and job site, the database constraint needs to be updated ' +
+            'to include paychex_component_id. Contact your administrator.',
+        });
+      }
       return res.status(409).json({
-        message: 'An entry already exists for this worker, job site, component, and date',
+        message:
+          'An entry already exists for this worker, job site, pay code, and date. ' +
+          'To add different pay types (e.g., Regular + Overtime), submit a separate entry with a different pay code.',
       });
     }
     const status = error.statusCode || 500;

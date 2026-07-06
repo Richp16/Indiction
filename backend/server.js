@@ -19,6 +19,7 @@ const PORT = process.env.PORT || 3000;
 app.use(
   cors({
     origin: 'http://localhost:5173',
+    exposedHeaders: ['Content-Disposition'],
   })
 );
 app.use(express.json());
@@ -33,6 +34,7 @@ app.use('/api/entries', entriesRoutes);
 app.use('/api/summary', summaryRoutes);
 app.get('/api/pay-periods/current', summaryRoutes.getCurrentPayPeriod);
 app.get('/api/alerts', summaryRoutes.getAlerts);
+app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/submit', submitRoutes);
 app.use('/api', settingsRoutes);
 

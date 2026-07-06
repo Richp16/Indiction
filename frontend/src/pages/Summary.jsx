@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiGet } from '../api/client';
+import PayrollExport from '../components/PayrollExport';
 
 export default function Summary() {
   const { token } = useAuth();
@@ -100,6 +101,8 @@ export default function Summary() {
           </tbody>
         </table>
       )}
+
+      {period && <PayrollExport payPeriodId={period.id} token={token} />}
     </div>
   );
 }

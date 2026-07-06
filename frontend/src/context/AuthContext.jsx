@@ -12,8 +12,8 @@ export function AuthProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedToken = localStorage.getItem(TOKEN_KEY);
-    const storedUser = localStorage.getItem(USER_KEY);
+    const storedToken = sessionStorage.getItem(TOKEN_KEY);
+    const storedUser = sessionStorage.getItem(USER_KEY);
     if (storedToken) {
       setToken(storedToken);
     }
@@ -21,7 +21,7 @@ export function AuthProvider({ children }) {
       try {
         setUser(JSON.parse(storedUser));
       } catch {
-        localStorage.removeItem(USER_KEY);
+        sessionStorage.removeItem(USER_KEY);
       }
     }
     setIsLoading(false);
@@ -31,16 +31,16 @@ export function AuthProvider({ children }) {
     const data = await apiPost('/api/auth/login', { email, password });
     setToken(data.token);
     setUser(data.user);
-    localStorage.setItem(TOKEN_KEY, data.token);
-    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+    sessionStorage.setItem(TOKEN_KEY, data.token);
+    sessionStorage.setItem(USER_KEY, JSON.stringify(data.user));
     return data;
   }
 
   function logout() {
     setToken(null);
     setUser(null);
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
   }
 
   return (
