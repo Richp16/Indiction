@@ -1,5 +1,27 @@
 const { query } = require('../db');
 
+const OT_EARNINGS_MULTIPLIER = 1.5;
+const EMPLOYER_LIABILITY_RATE = 0.08;
+
+const COMPANY_EARNINGS_SQL = `
+SELECT
+  COALESCE(SUM(
+    CASE
+      WHEN te.paychex_component_id IN ('REGULAR', 'HOURLY', 'Hourly', 'Regular')
+        THEN te.hours * COALESCE(w.standard_rate, 0)
+      WHEN te.paychex_component_id IN ('OT', 'OVERTIME', 'Overtime')
+        THEN te.hours * COALESCE(w.standard_rate, 0) * ${OT_EARNINGS_MULTIPLIER}
+      WHEN te.paychex_component_id IN ('PTO', 'Vacation', 'Sick')
+        THEN te.hours * COALESCE(w.standard_rate, 0)
+      ELSE 0
+    END
+  ), 0) AS total_earnings
+FROM time_entries te
+JOIN workers w ON te.worker_id = w.id
+WHERE te.pay_period_id = $1
+  AND te.paychex_component_id NOT IN ('REIMBURSE', 'Reimbursement')
+`;
+
 const AGGREGATED_SUMMARY_SQL = `
 SELECT
   w.employee_code                                                          AS "employeeId",
@@ -78,6 +100,12 @@ async function getAggregatedSummary(payPeriodId) {
   return result.rows;
 }
 
+async function getCompanyEarnings(payPeriodId) {
+  const result = await query(COMPANY_EARNINGS_SQL, [payPeriodId]);
+  const total = parseFloat(result.rows[0]?.total_earnings) || 0;
+  return total;
+}
+
 function generateCSV(rows) {
   const lines = [CSV_HEADERS.join(',')];
   for (const row of rows) {
@@ -87,4 +115,10 @@ function generateCSV(rows) {
   return lines.join('\n');
 }
 
-module.exports = { getAggregatedSummary, generateCSV };
+module.exports = {
+  getAggregatedSummary,
+  getCompanyEarnings,
+  generateCSV,
+  OT_EARNINGS_MULTIPLIER,
+  EMPLOYER_LIABILITY_RATE,
+};

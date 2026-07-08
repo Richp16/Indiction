@@ -37,12 +37,14 @@ export async function apiPatch(path, body, token) {
   return parseResponse(res);
 }
 
-export async function apiDelete(path, token) {
+export async function apiDelete(path, token, body) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: 'DELETE',
     headers: {
+      'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   return parseResponse(res);
 }

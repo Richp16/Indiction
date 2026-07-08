@@ -2,6 +2,16 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiGet } from '../api/client';
 
+const currencyFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+});
+
+function formatCurrency(value) {
+  const amount = Number(value);
+  return currencyFormatter.format(Number.isFinite(amount) ? amount : 0);
+}
+
 function formatWorkerName(entry) {
   const name = `${entry.worker_first_name || ''} ${entry.worker_last_name || ''}`.trim();
   return name || '—';
@@ -27,6 +37,8 @@ export default function SummaryPage() {
   const { token } = useAuth();
   const [period, setPeriod] = useState(null);
   const [entries, setEntries] = useState([]);
+  const [totalEarnings, setTotalEarnings] = useState(0);
+  const [employerLiability, setEmployerLiability] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -37,14 +49,20 @@ export default function SummaryPage() {
       try {
         const periodData = await apiGet('/api/pay-periods/current', token);
         setPeriod(periodData);
-        const entryData = await apiGet(
-          `/api/entries?payPeriodId=${periodData.id}`,
-          token
-        );
+
+        const [entryData, summaryData] = await Promise.all([
+          apiGet(`/api/entries?payPeriodId=${periodData.id}`, token),
+          apiGet(`/api/summary?payPeriodId=${periodData.id}`, token),
+        ]);
+
         setEntries(entryData);
+        setTotalEarnings(summaryData.totalEarnings ?? 0);
+        setEmployerLiability(summaryData.employerLiability ?? 0);
       } catch (err) {
         setError(err.message || 'Failed to load summary');
         setEntries([]);
+        setTotalEarnings(0);
+        setEmployerLiability(0);
       } finally {
         setLoading(false);
       }
@@ -67,6 +85,23 @@ export default function SummaryPage() {
       )}
 
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
+
+      <section style={statsSectionStyle}>
+        <div style={statCardStyle}>
+          <h2 style={statTitleStyle}>Company Total Earnings</h2>
+          <p style={statValueStyle}>{formatCurrency(totalEarnings)}</p>
+          <p style={statSubtextStyle}>
+            Includes regular, overtime, and PTO. Excludes reimbursements.
+          </p>
+        </div>
+        <div style={statCardStyle}>
+          <h2 style={statTitleStyle}>Employer Liability Cost</h2>
+          <p style={statValueStyle}>{formatCurrency(employerLiability)}</p>
+          <p style={statSubtextStyle}>
+            Estimated employer liabilities at 8% of total earnings.
+          </p>
+        </div>
+      </section>
 
       {entries.length === 0 && !error && (
         <p>No time entries for this pay period.</p>
@@ -101,3 +136,35 @@ export default function SummaryPage() {
     </div>
   );
 }
+
+const statsSectionStyle = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '1rem',
+  margin: '1.5rem 0 2rem',
+};
+
+const statCardStyle = {
+  flex: '1 1 280px',
+  padding: '1rem',
+  background: '#f7f7f7',
+  borderRadius: 4,
+};
+
+const statTitleStyle = {
+  margin: '0 0 0.5rem',
+  fontSize: '1rem',
+  fontWeight: 600,
+};
+
+const statValueStyle = {
+  margin: '0 0 0.5rem',
+  fontSize: '1.75rem',
+  fontWeight: 700,
+};
+
+const statSubtextStyle = {
+  margin: 0,
+  color: '#666',
+  fontSize: '0.875rem',
+};

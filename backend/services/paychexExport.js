@@ -1,59 +1,77 @@
 const { query } = require('../db');
+const { paychexGet } = require('./paychexSync');
 
-const SPI_CSV_HEADERS = [
+const EXPORT_CSV_HEADERS = [
   'Company ID',
   'Worker ID',
-  'Org',
+  'Employee Name',
   'Job Number',
+  'Job Name',
   'Pay Component',
   'Hours',
-  'Rate',
-  'Amount',
-  'Start Date',
-  'End Date',
 ];
 
 const HOURS_PAY_CODES = new Set(['REGULAR', 'OT', 'PTO']);
 
 const AGGREGATION_SQL = `
 SELECT
-  w.employee_code          AS worker_id,
-  w.first_name,
-  w.last_name,
-  js.paychex_job_id        AS job_number,
-  js.name                  AS job_name,
-  CASE
-    WHEN te.reimbursement_amount > 0 THEN 'REIMBURSE'
-    ELSE te.paychex_component_id
-  END                      AS pay_code,
-  SUM(te.hours)            AS total_hours,
-  SUM(te.reimbursement_amount) AS total_amount,
-  MAX(
-    CASE WHEN te.reimbursement_amount > 0 THEN te.component_name END
-  )                        AS entry_reimburse_component_name,
-  (
-    SELECT wpc.name
-    FROM worker_pay_components wpc
-    WHERE wpc.worker_id = w.id
-      AND wpc.name ILIKE '%reimburse%'
-    LIMIT 1
-  )                        AS worker_reimburse_component_name
+  w.id                                   AS worker_db_id,
+  TRIM(w.first_name || ' ' || w.last_name) AS worker_name,
+  w.employee_code                          AS worker_id,
+  te.job_site_id,
+  js.paychex_job_id                        AS paychex_job_id,
+  js.name                                  AS job_name,
+  te.paychex_component_id                  AS pay_component,
+  SUM(te.hours)                            AS hours,
+  SUM(te.reimbursement_amount)             AS amount,
+  MAX(te.component_name)                   AS component_name,
+  pp.start_date::text                      AS start_date,
+  pp.end_date::text                        AS end_date
 FROM time_entries te
-JOIN workers w    ON w.id = te.worker_id
-JOIN job_sites js ON js.id = te.job_site_id
+JOIN workers w ON te.worker_id = w.id
+LEFT JOIN job_sites js ON te.job_site_id = js.id
+JOIN pay_periods pp ON te.pay_period_id = pp.id
 WHERE te.pay_period_id = $1
-  AND w.employee_code IS NOT NULL
-  AND w.employee_code != ''
   AND (te.hours > 0 OR te.reimbursement_amount > 0)
 GROUP BY
-  w.id, w.employee_code, w.first_name, w.last_name,
-  js.id, js.paychex_job_id, js.name,
-  CASE
-    WHEN te.reimbursement_amount > 0 THEN 'REIMBURSE'
-    ELSE te.paychex_component_id
-  END
-ORDER BY w.last_name, w.first_name, js.name, pay_code
+  w.id,
+  w.first_name,
+  w.last_name,
+  w.employee_code,
+  te.job_site_id,
+  js.paychex_job_id,
+  js.name,
+  te.paychex_component_id,
+  pp.start_date,
+  pp.end_date
+ORDER BY
+  w.last_name,
+  w.first_name,
+  COALESCE(js.name, 'General'),
+  te.paychex_component_id
 `;
+
+async function loadPaychexJobCodeMap() {
+  const companyId = process.env.PAYCHEX_COMPANY_ID;
+  if (!companyId) {
+    return new Map();
+  }
+
+  try {
+    const jobs = await paychexGet(`/companies/${companyId}/jobs`);
+    const map = new Map();
+    for (const job of jobs) {
+      const jobCode = job.jobNumber?.segment1;
+      if (job.jobId && jobCode) {
+        map.set(String(job.jobId), String(jobCode));
+      }
+    }
+    return map;
+  } catch (error) {
+    console.warn('[paychexExport] Could not load Paychex job codes:', error.message);
+    return new Map();
+  }
+}
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -80,7 +98,7 @@ function escapeCsvField(value, { forceQuote = false } = {}) {
   return str;
 }
 
-function resolvePayComponentName(payCode, entryReimburseName, workerReimburseName) {
+function resolvePayComponentName(payCode, componentName) {
   switch (payCode) {
     case 'REGULAR':
       return process.env.PAYCHEX_REGULAR_COMPONENT_NAME || 'Regular';
@@ -90,13 +108,12 @@ function resolvePayComponentName(payCode, entryReimburseName, workerReimburseNam
       return process.env.PAYCHEX_PTO_COMPONENT_NAME || 'PTO';
     case 'REIMBURSE':
       return (
-        entryReimburseName ||
-        workerReimburseName ||
+        componentName ||
         process.env.PAYCHEX_REIMBURSE_COMPONENT_NAME ||
         'Reimbursement'
       );
     default:
-      return '';
+      return componentName || '';
   }
 }
 
@@ -110,9 +127,13 @@ function isReimbursementPayCode(payCode) {
 
 function stripMetadata(row) {
   const cleaned = { ...row };
-  delete cleaned._workerName;
+  delete cleaned._employeeName;
   delete cleaned._jobName;
   delete cleaned._payCode;
+  delete cleaned._workerDbId;
+  delete cleaned._jobSiteId;
+  delete cleaned._payPeriodId;
+  delete cleaned.worker_id;
   return cleaned;
 }
 
@@ -128,10 +149,9 @@ function validateSpiRows(rows) {
   rows.forEach((row, index) => {
     const cleaned = stripMetadata(row);
     const companyId = cleaned['Company ID'];
-    const workerId = cleaned['Worker ID'];
+    const workerId = cleaned.worker_id ?? cleaned['Worker ID'];
     const payComponent = cleaned['Pay Component'];
     const hours = parseNumericField(cleaned.Hours);
-    const amount = parseNumericField(cleaned.Amount);
 
     if (!companyId || String(companyId).trim() === '') {
       errors.push({ row: index, reason: 'Company ID is required' });
@@ -142,11 +162,8 @@ function validateSpiRows(rows) {
     if (!payComponent || String(payComponent).trim() === '') {
       errors.push({ row: index, reason: 'Pay Component is required' });
     }
-    if (hours <= 0 && amount <= 0) {
-      errors.push({ row: index, reason: 'Row must have Hours > 0 or Amount > 0' });
-    }
-    if (hours > 0 && amount > 0) {
-      errors.push({ row: index, reason: 'Hours and Amount cannot both be populated' });
+    if (hours <= 0) {
+      errors.push({ row: index, reason: 'Hours must be greater than 0' });
     }
   });
 
@@ -167,8 +184,6 @@ async function generateSPIRows(payPeriodId) {
 
   const payPeriod = periodResult.rows[0];
   const clientCode = process.env.PAYCHEX_CLIENT_CODE || '';
-  const startDate = formatDate(payPeriod.start_date);
-  const endDate = formatDate(payPeriod.end_date);
   const warnings = [];
 
   if (!clientCode) {
@@ -178,76 +193,55 @@ async function generateSPIRows(payPeriodId) {
     });
   }
 
-  const skippedWorkers = await query(
-    `SELECT DISTINCT w.first_name, w.last_name
-     FROM time_entries te
-     JOIN workers w ON w.id = te.worker_id
-     WHERE te.pay_period_id = $1
-       AND (w.employee_code IS NULL OR w.employee_code = '')
-       AND (te.hours > 0 OR te.reimbursement_amount > 0)`,
-    [payPeriodId]
-  );
-
-  for (const worker of skippedWorkers.rows) {
-    const name = `${worker.first_name} ${worker.last_name}`;
-    console.warn(`[paychexExport] Skipping worker without employee_code: ${name}`);
-    warnings.push({
-      type: 'warning',
-      message: `Skipped ${name}: missing Paychex Worker ID (employee_code)`,
-    });
-  }
-
   const aggResult = await query(AGGREGATION_SQL, [payPeriodId]);
+  const jobCodeMap = await loadPaychexJobCodeMap();
   const rows = [];
 
   for (const agg of aggResult.rows) {
-    const payCode = agg.pay_code;
-    const payComponentName = resolvePayComponentName(
-      payCode,
-      agg.entry_reimburse_component_name,
-      agg.worker_reimburse_component_name
-    );
+    const payCode = agg.pay_component;
+    const payComponentName = resolvePayComponentName(payCode, agg.component_name);
+    const totalHours = parseFloat(agg.hours) || 0;
+    const jobNumber = agg.paychex_job_id
+      ? jobCodeMap.get(String(agg.paychex_job_id)) || ''
+      : '';
+
+    if (totalHours <= 0) {
+      continue;
+    }
 
     if (!payComponentName || !payComponentName.trim()) {
-      const name = `${agg.first_name} ${agg.last_name}`;
-      console.error(
-        `[paychexExport] Skipping row for ${name}: blank Pay Component for pay code ${payCode}`
-      );
       warnings.push({
         type: 'error',
-        message: `Skipped ${name} at ${agg.job_name || 'unknown job'}: Pay Component name is blank`,
+        message: `Skipped ${agg.worker_name} at ${agg.job_name || 'unknown job'}: Pay Component name is blank`,
       });
       continue;
     }
 
-    if (!agg.job_number) {
-      const name = `${agg.first_name} ${agg.last_name}`;
-      console.warn(`[paychexExport] Missing job number for ${name} at ${agg.job_name}`);
+    if (!jobNumber) {
+      console.warn(`[paychexExport] Missing job number for ${agg.worker_name} at ${agg.job_name}`);
       warnings.push({
         type: 'warning',
-        message: `Missing Job Number for ${name} at ${agg.job_name || 'unknown job'}`,
+        message: `Missing Job Number for ${agg.worker_name} at ${agg.job_name || 'unknown job'}`,
       });
     }
 
-    const isHours = isHoursPayCode(payCode);
-    const isReimbursement = isReimbursementPayCode(payCode);
-    const totalHours = parseFloat(agg.total_hours) || 0;
-    const totalAmount = parseFloat(agg.total_amount) || 0;
+    const workerId = agg.worker_id != null ? String(agg.worker_id) : '';
 
     rows.push({
+      worker_id: workerId,
       'Company ID': clientCode,
-      'Worker ID': String(agg.worker_id),
-      Org: '',
-      'Job Number': agg.job_number ? String(agg.job_number) : '',
+      'Worker ID': workerId,
+      'Employee Name': agg.worker_name,
+      'Job Number': jobNumber,
+      'Job Name': agg.job_name || 'General',
       'Pay Component': payComponentName,
-      Hours: isHours && totalHours > 0 ? totalHours.toFixed(2) : '',
-      Rate: '',
-      Amount: isReimbursement && totalAmount > 0 ? totalAmount.toFixed(2) : '',
-      'Start Date': startDate,
-      'End Date': endDate,
-      _workerName: `${agg.first_name} ${agg.last_name}`,
-      _jobName: agg.job_name || '',
+      Hours: totalHours.toFixed(2),
+      _employeeName: agg.worker_name,
+      _jobName: agg.job_name || 'General',
       _payCode: payCode,
+      _workerDbId: agg.worker_db_id,
+      _jobSiteId: agg.job_site_id,
+      _payPeriodId: payPeriodId,
     });
   }
 
@@ -266,11 +260,11 @@ async function generateSPIRows(payPeriodId) {
 function generateSPICSV(rows, clientCode) {
   const code = clientCode || process.env.PAYCHEX_CLIENT_CODE || 'payroll';
   const filename = `${code}_ta.csv`;
-  const lines = [SPI_CSV_HEADERS.join(',')];
+  const lines = [EXPORT_CSV_HEADERS.join(',')];
 
   for (const row of rows) {
     const cleaned = stripMetadata(row);
-    const fields = SPI_CSV_HEADERS.map((header) => {
+    const fields = EXPORT_CSV_HEADERS.map((header) => {
       const value = cleaned[header] ?? '';
       if (header === 'Job Number') {
         return escapeCsvField(value, { forceQuote: true });
@@ -284,12 +278,42 @@ function generateSPICSV(rows, clientCode) {
   return { csvString, filename };
 }
 
+async function deletePayrollRow({ payPeriodId, workerDbId, jobSiteId, payComponent }) {
+  const periodResult = await query('SELECT status FROM pay_periods WHERE id = $1', [payPeriodId]);
+  if (periodResult.rows.length === 0) {
+    const error = new Error('Pay period not found');
+    error.statusCode = 404;
+    throw error;
+  }
+  if (periodResult.rows[0].status !== 'OPEN') {
+    const error = new Error('Pay period is not open for edits');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const result = await query(
+    `DELETE FROM time_entries
+     WHERE pay_period_id = $1
+       AND worker_id = $2
+       AND paychex_component_id = $3
+       AND (
+         ($4::uuid IS NULL AND job_site_id IS NULL)
+         OR job_site_id = $4::uuid
+       )
+     RETURNING id`,
+    [payPeriodId, workerDbId, payComponent, jobSiteId || null]
+  );
+
+  return result.rowCount;
+}
+
 module.exports = {
-  SPI_CSV_HEADERS,
+  EXPORT_CSV_HEADERS,
   formatDate,
   escapeCsvField,
   generateSPIRows,
   generateSPICSV,
   validateSpiRows,
   stripMetadata,
+  deletePayrollRow,
 };

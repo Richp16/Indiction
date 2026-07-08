@@ -21,7 +21,7 @@ export default function Summary() {
           `/api/summary?payPeriodId=${periodData.id}`,
           token
         );
-        setRows(summary);
+        setRows(Array.isArray(summary) ? summary : summary.rows ?? []);
       } catch (err) {
         setError(err.message || 'Failed to load summary');
         setRows([]);

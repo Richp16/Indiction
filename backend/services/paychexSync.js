@@ -330,4 +330,5 @@ module.exports = {
   syncJobSites,
   syncPayPeriods,
   fetchWorkerHourlyRate,
+  paychexGet,
 };

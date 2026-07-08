@@ -105,6 +105,8 @@ router.post('/', async (req, res) => {
       reimbursementAmount,
     } = req.body;
 
+    const normalizedJobSiteId = jobSiteId || null;
+
     let payPeriod;
     let payPeriodId = bodyPayPeriodId;
 
@@ -161,14 +163,14 @@ router.post('/', async (req, res) => {
           `SELECT id FROM time_entries
            WHERE worker_id = $1 AND job_site_id = $2 AND entry_date = $3
              AND pay_period_id = $4 AND paychex_component_id = 'REGULAR'`,
-          [workerId, jobSiteId, entryDate, payPeriodId]
+          [workerId, normalizedJobSiteId, entryDate, payPeriodId]
         );
 
         const otDupCheck = await query(
           `SELECT id FROM time_entries
            WHERE worker_id = $1 AND job_site_id = $2 AND entry_date = $3
              AND pay_period_id = $4 AND paychex_component_id = 'OT'`,
-          [workerId, jobSiteId, entryDate, payPeriodId]
+          [workerId, normalizedJobSiteId, entryDate, payPeriodId]
         );
 
         if (regularDupCheck.rows.length > 0 && otDupCheck.rows.length > 0) {
@@ -190,7 +192,7 @@ router.post('/', async (req, res) => {
              RETURNING *`,
             [
               workerId,
-              jobSiteId,
+              normalizedJobSiteId,
               payPeriodId,
               resolved.componentName,
               resolved.componentRate,
@@ -217,7 +219,7 @@ router.post('/', async (req, res) => {
              RETURNING *`,
             [
               workerId,
-              jobSiteId,
+              normalizedJobSiteId,
               payPeriodId,
               resolved.componentRate,
               entryDate,
@@ -250,7 +252,7 @@ router.post('/', async (req, res) => {
          AND paychex_component_id = $5`,
       [
         workerId,
-        jobSiteId,
+        normalizedJobSiteId,
         entryDate,
         payPeriodId,
         resolved.paychexComponentId,
@@ -276,7 +278,7 @@ router.post('/', async (req, res) => {
        RETURNING *`,
       [
         workerId,
-        jobSiteId,
+        normalizedJobSiteId,
         payPeriodId,
         resolved.paychexComponentId,
         resolved.componentName,
@@ -322,7 +324,7 @@ router.get('/', async (req, res) => {
         js.name AS job_site_name
       FROM time_entries te
       JOIN workers w ON te.worker_id = w.id
-      JOIN job_sites js ON te.job_site_id = js.id
+      LEFT JOIN job_sites js ON te.job_site_id = js.id
       WHERE 1=1
     `;
     const params = [];

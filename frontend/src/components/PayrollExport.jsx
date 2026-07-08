@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
-import { apiGet, apiPostDownload } from '../api/client';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { apiGet, apiPostDownload, apiDelete } from '../api/client';
 
 function parseNumericField(value) {
   if (value == null || value === '') return 0;
@@ -9,29 +10,29 @@ function parseNumericField(value) {
 
 function getRowIssues(row) {
   const issues = [];
-  const workerId = row['Worker ID'];
+  const companyId = row['Company ID'];
+  const workerId = row.worker_id ?? row['Worker ID'];
   const payComponent = row['Pay Component'];
   const hours = parseNumericField(row.Hours);
-  const amount = parseNumericField(row.Amount);
 
+  if (!companyId || String(companyId).trim() === '') {
+    issues.push('Company ID is blank');
+  }
   if (!workerId || String(workerId).trim() === '') {
     issues.push('Worker ID is blank');
   }
   if (!payComponent || String(payComponent).trim() === '') {
     issues.push('Pay Component is blank');
   }
-  if (hours <= 0 && amount <= 0) {
-    issues.push('Hours and Amount are both blank');
+  if (hours <= 0) {
+    issues.push('Hours is blank');
   }
 
   return issues;
 }
 
-function updateRowField(rows, index, field, value) {
-  return rows.map((row, i) => (i === index ? { ...row, [field]: value } : row));
-}
-
 export default function PayrollExport({ payPeriodId, token, showInstructions = false }) {
+  const { isAdmin } = useAuth();
   const [exportRows, setExportRows] = useState([]);
   const [payPeriod, setPayPeriod] = useState(null);
   const [clientCode, setClientCode] = useState('payroll');
@@ -39,6 +40,10 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [rowPendingDelete, setRowPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const cancelButtonRef = useRef(null);
 
   useEffect(() => {
     if (!payPeriodId || !token) {
@@ -79,7 +84,69 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
   const hasValidationErrors = issueCount > 0;
 
   function handleFieldChange(index, field, value) {
-    setExportRows((rows) => updateRowField(rows, index, field, value));
+    setExportRows((rows) =>
+      rows.map((row, i) => {
+        if (i !== index) return row;
+        if (field === 'worker_id') {
+          return { ...row, worker_id: value, 'Worker ID': value };
+        }
+        return { ...row, [field]: value };
+      })
+    );
+  }
+
+  function openDeleteConfirm(row, index) {
+    setError('');
+    setSuccessMessage('');
+    setRowPendingDelete({ row, index });
+  }
+
+  function closeDeleteConfirm() {
+    if (deleting) return;
+    setRowPendingDelete(null);
+  }
+
+  useEffect(() => {
+    if (rowPendingDelete && cancelButtonRef.current) {
+      cancelButtonRef.current.focus();
+    }
+  }, [rowPendingDelete]);
+
+  useEffect(() => {
+    if (!rowPendingDelete) return undefined;
+
+    function onKeyDown(event) {
+      if (event.key === 'Escape' && !deleting) {
+        setRowPendingDelete(null);
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [rowPendingDelete, deleting]);
+
+  async function confirmDeleteRow() {
+    if (!rowPendingDelete || !payPeriodId) return;
+
+    const { row, index } = rowPendingDelete;
+    setDeleting(true);
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      await apiDelete(`/api/payroll/${payPeriodId}/row`, token, {
+        workerDbId: row._workerDbId,
+        jobSiteId: row._jobSiteId ?? null,
+        payComponent: row._payCode,
+      });
+      setExportRows((rows) => rows.filter((_, i) => i !== index));
+      setRowPendingDelete(null);
+      setSuccessMessage('Payroll row deleted.');
+    } catch (err) {
+      setError(err.message || 'Unable to delete row. Please try again or contact support.');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function handleDownload() {
@@ -150,6 +217,7 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
 
       {loading && <p>Loading payroll export…</p>}
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
+      {successMessage && <p style={{ color: '#15803d' }}>{successMessage}</p>}
 
       {warnings.length > 0 && (
         <ul style={{ color: '#964219' }}>
@@ -174,15 +242,14 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
             <thead>
               <tr>
-                <th style={thStyle}>Worker Name</th>
+                <th style={thStyle}>Company ID</th>
                 <th style={thStyle}>Worker ID</th>
+                <th style={thStyle}>Employee Name</th>
                 <th style={thStyle}>Job Number</th>
                 <th style={thStyle}>Job Name</th>
                 <th style={thStyle}>Pay Component</th>
                 <th style={thStyle}>Hours</th>
-                <th style={thStyle}>Amount</th>
-                <th style={thStyle}>Start Date</th>
-                <th style={thStyle}>End Date</th>
+                {isAdmin && <th style={thStyle}>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -192,15 +259,16 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
 
                 return (
                   <tr key={index} style={rowStyle}>
-                    <td style={tdStyle}>{row._workerName}</td>
+                    <td style={tdStyle}>{row['Company ID'] ?? clientCode}</td>
                     <td style={tdStyle}>
                       <input
                         type="text"
-                        value={row['Worker ID'] ?? ''}
-                        onChange={(e) => handleFieldChange(index, 'Worker ID', e.target.value)}
+                        value={row.worker_id ?? row['Worker ID'] ?? ''}
+                        onChange={(e) => handleFieldChange(index, 'worker_id', e.target.value)}
                         style={inputStyle}
                       />
                     </td>
+                    <td style={tdStyle}>{row['Employee Name'] ?? row._employeeName}</td>
                     <td style={tdStyle}>
                       <input
                         type="text"
@@ -209,7 +277,7 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
                         style={inputStyle}
                       />
                     </td>
-                    <td style={tdStyle}>{row._jobName}</td>
+                    <td style={tdStyle}>{row['Job Name'] ?? row._jobName}</td>
                     <td style={tdStyle}>
                       <input
                         type="text"
@@ -229,17 +297,18 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
                         style={{ ...inputStyle, width: 72 }}
                       />
                     </td>
-                    <td style={tdStyle}>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={row.Amount ?? ''}
-                        onChange={(e) => handleFieldChange(index, 'Amount', e.target.value)}
-                        style={{ ...inputStyle, width: 88 }}
-                      />
-                    </td>
-                    <td style={tdStyle}>{row['Start Date']}</td>
-                    <td style={tdStyle}>{row['End Date']}</td>
+                    {isAdmin && (
+                      <td style={tdStyle}>
+                        <button
+                          type="button"
+                          onClick={() => openDeleteConfirm(row, index)}
+                          aria-label={`Delete payroll row for ${row['Employee Name'] ?? row._employeeName ?? 'employee'}`}
+                          style={deleteButtonStyle}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -257,6 +326,44 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
           {downloading ? 'Downloading…' : 'Download Payroll CSV'}
         </button>
       </div>
+
+      {rowPendingDelete && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-payroll-row-title"
+          style={modalOverlayStyle}
+          onClick={closeDeleteConfirm}
+        >
+          <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
+            <h3 id="delete-payroll-row-title" style={{ marginTop: 0 }}>
+              Delete payroll row?
+            </h3>
+            <p style={{ marginBottom: '1.25rem', color: '#444' }}>
+              Are you sure you want to delete this payroll row? This will remove the associated
+              time entries for this worker/site/pay component for this pay period.
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                ref={cancelButtonRef}
+                onClick={closeDeleteConfirm}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteRow}
+                disabled={deleting}
+                style={deleteConfirmButtonStyle}
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -279,4 +386,43 @@ const inputStyle = {
   minWidth: 64,
   padding: '0.25rem',
   boxSizing: 'border-box',
+};
+
+const deleteButtonStyle = {
+  background: 'none',
+  border: 'none',
+  color: '#b91c1c',
+  cursor: 'pointer',
+  padding: 0,
+  fontSize: '0.875rem',
+  textDecoration: 'underline',
+};
+
+const modalOverlayStyle = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(0, 0, 0, 0.45)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '1rem',
+  zIndex: 1000,
+};
+
+const modalCardStyle = {
+  background: '#fff',
+  borderRadius: 6,
+  padding: '1.25rem',
+  maxWidth: 480,
+  width: '100%',
+  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
+};
+
+const deleteConfirmButtonStyle = {
+  background: '#b91c1c',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 4,
+  padding: '0.5rem 0.9rem',
+  cursor: 'pointer',
 };

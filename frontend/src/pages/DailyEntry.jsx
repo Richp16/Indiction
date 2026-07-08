@@ -4,7 +4,6 @@ import { apiGet, apiPost } from '../api/client';
 
 const BASE_PAY_CODES = [
   { id: 'REGULAR', label: 'Regular Hours', type: 'HOURS' },
-  { id: 'OT', label: 'Overtime', type: 'HOURS' },
   { id: 'PTO', label: 'Paid Time Off', type: 'HOURS' },
 ];
 
@@ -42,7 +41,6 @@ export default function DailyEntry() {
   const [searchText, setSearchText] = useState('');
   const [workerResults, setWorkerResults] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState(null);
-  const [reimbursementPayCodes, setReimbursementPayCodes] = useState([]);
   const [selectedPayCodeId, setSelectedPayCodeId] = useState('');
   const [entryDate, setEntryDate] = useState(getToday());
   const [hours, setHours] = useState('');
@@ -57,8 +55,7 @@ export default function DailyEntry() {
   const [weeklyHoursRefresh, setWeeklyHoursRefresh] = useState(0);
   const debounceRef = useRef(null);
 
-  const reimbursementOptions = [GENERIC_REIMBURSE_CODE, ...reimbursementPayCodes];
-  const payCodes = [...BASE_PAY_CODES, ...reimbursementOptions];
+  const payCodes = [...BASE_PAY_CODES, GENERIC_REIMBURSE_CODE];
   const selectedPayCode = payCodes.find((code) => code.id === selectedPayCodeId);
   const isReimbursementEntry = selectedPayCode?.type === 'REIMBURSEMENT';
 
@@ -115,32 +112,9 @@ export default function DailyEntry() {
 
   useEffect(() => {
     if (!selectedWorker) {
-      setReimbursementPayCodes([]);
       setSelectedPayCodeId('');
-      return;
     }
-
-    async function loadReimbursementComponents() {
-      try {
-        const components = await apiGet(
-          `/api/workers/${selectedWorker.id}/pay-components`,
-          token
-        );
-        setReimbursementPayCodes(
-          components.map((c) => ({
-            id: c.paychexComponentId,
-            label: c.name,
-            type: 'REIMBURSEMENT',
-            paychexComponentId: c.paychexComponentId,
-          }))
-        );
-      } catch {
-        setReimbursementPayCodes([]);
-      }
-    }
-
-    loadReimbursementComponents();
-  }, [selectedWorker, token]);
+  }, [selectedWorker]);
 
   useEffect(() => {
     if (!selectedWorker || !period) {
@@ -179,12 +153,12 @@ export default function DailyEntry() {
     setError('');
     setSavedMessage('');
 
-    const selectedJobSite = jobSites.find((s) => s.id === selectedJobSiteId);
-
-    if (!period || !selectedJobSite || !selectedWorker || !selectedPayCode) {
+    if (!period || !selectedWorker || !selectedPayCode) {
       setError('Please complete all required fields');
       return;
     }
+
+    const jobSiteId = selectedJobSiteId || null;
 
     if (selectedPayCode.type === 'HOURS') {
       if (!hours || Number(hours) <= 0) {
@@ -198,17 +172,13 @@ export default function DailyEntry() {
 
     const payload = {
       workerId: selectedWorker.id,
-      jobSiteId: selectedJobSite.id,
+      jobSiteId,
       payPeriodId: period.id,
       entryDate,
       hours: isReimbursementEntry ? 0 : Number(hours) || 0,
       reimbursementAmount: isReimbursementEntry ? Number(reimbursement) : 0,
       payCode: selectedPayCodeId,
     };
-
-    if (isReimbursementEntry && selectedPayCode.paychexComponentId) {
-      payload.paychexComponentId = selectedPayCode.paychexComponentId;
-    }
 
     setSaving(true);
     try {
@@ -256,10 +226,9 @@ export default function DailyEntry() {
             id="job-site"
             value={selectedJobSiteId}
             onChange={(e) => setSelectedJobSiteId(e.target.value)}
-            required
             style={{ display: 'block', width: '100%', padding: '0.5rem' }}
           >
-            <option value="">Select a job site…</option>
+            <option value="">-- General / No Job Site --</option>
             {jobSites.map((site) => (
               <option key={site.id} value={site.id}>
                 {site.name}
@@ -368,11 +337,6 @@ export default function DailyEntry() {
             </optgroup>
             <optgroup label="Reimbursements">
               <option value={GENERIC_REIMBURSE_CODE.id}>{GENERIC_REIMBURSE_CODE.label}</option>
-              {reimbursementPayCodes.map((code) => (
-                <option key={code.id} value={code.id}>
-                  {code.label}
-                </option>
-              ))}
             </optgroup>
           </select>
         </div>

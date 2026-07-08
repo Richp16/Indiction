@@ -1,6 +1,6 @@
 const express = require('express');
 const { query } = require('../db');
-const { getAggregatedSummary, generateCSV } = require('../services/aggregation');
+const { getAggregatedSummary, getCompanyEarnings, generateCSV, EMPLOYER_LIABILITY_RATE } = require('../services/aggregation');
 const { subtractBusinessDays } = require('../utils/businessDays');
 const { requireRole } = require('../middleware/roleGuard');
 
@@ -101,7 +101,10 @@ router.get('/', async (req, res) => {
     }
 
     const rows = await getAggregatedSummary(payPeriodId);
-    res.json(rows);
+    const totalEarnings = await getCompanyEarnings(payPeriodId);
+    const employerLiability = totalEarnings * EMPLOYER_LIABILITY_RATE;
+
+    res.json({ rows, totalEarnings, employerLiability });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
