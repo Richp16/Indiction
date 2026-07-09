@@ -1,0 +1,331 @@
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+const { query } = require('../db');
+const { requireRole } = require('../middleware/roleGuard');
+
+const router = express.Router();
+router.use(requireRole('system_admin', 'payroll_admin'));
+
+function getWeekWindow(weekEndingDate) {
+  const end = new Date(`${weekEndingDate}T12:00:00`);
+  const start = new Date(end);
+  start.setDate(end.getDate() - 6);
+  return {
+    weekStart: start.toISOString().split('T')[0],
+    weekEnd: end.toISOString().split('T')[0],
+  };
+}
+
+function dayKey(dateStr) {
+  const date = new Date(`${dateStr}T12:00:00`);
+  return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()];
+}
+
+async function loadHoursRows(jobSiteId, weekEndingDate) {
+  const { weekStart, weekEnd } = getWeekWindow(weekEndingDate);
+  const result = await query(
+    `SELECT
+       w.id,
+       w.first_name,
+       w.last_name,
+       w.employee_code AS identifying_number,
+       w.worker_type,
+       COALESCE(w.standard_rate, 0) AS pay_rate,
+       lc.name AS labor_classification,
+       te.id AS entry_id,
+       te.entry_date::text AS entry_date,
+       te.labor_classification_id,
+       te.paychex_component_id,
+       SUM(te.hours) AS hours
+     FROM time_entries te
+     JOIN workers w ON te.worker_id = w.id
+     LEFT JOIN labor_classifications lc ON te.labor_classification_id = lc.id
+     WHERE te.job_site_id = $1
+       AND te.entry_date BETWEEN $2 AND $3
+       AND te.entry_date IS NOT NULL
+       AND te.paychex_component_id IN ('REGULAR','HOURLY','Hourly','Regular','OT','OVERTIME','Overtime')
+     GROUP BY
+       w.id, w.first_name, w.last_name,
+       w.employee_code, w.worker_type, w.standard_rate,
+       lc.name, te.id, te.entry_date, te.paychex_component_id, te.labor_classification_id
+     ORDER BY w.last_name, te.entry_date`,
+    [jobSiteId, weekStart, weekEnd]
+  );
+  return result.rows;
+}
+
+router.get('/hours', async (req, res) => {
+  try {
+    const { jobSiteId, weekEndingDate } = req.query;
+    if (!jobSiteId || !weekEndingDate) {
+      return res.status(400).json({ message: 'jobSiteId and weekEndingDate are required' });
+    }
+    const rows = await loadHoursRows(jobSiteId, weekEndingDate);
+    res.json({ rows, ...getWeekWindow(weekEndingDate) });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get('/supplements', async (req, res) => {
+  try {
+    const { jobSiteId, weekEndingDate } = req.query;
+    if (!jobSiteId || !weekEndingDate) {
+      return res.status(400).json({ message: 'jobSiteId and weekEndingDate are required' });
+    }
+
+    const hoursRows = await loadHoursRows(jobSiteId, weekEndingDate);
+    const workerMap = new Map();
+    for (const row of hoursRows) {
+      if (!workerMap.has(row.id)) {
+        workerMap.set(row.id, {
+          worker_id: row.id,
+          worker_name: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
+          paychex_worker_number: row.identifying_number || '',
+        });
+      }
+    }
+
+    const existing = await query(
+      `SELECT ws.*, TRIM(w.first_name || ' ' || w.last_name) AS worker_name,
+              w.employee_code AS paychex_worker_number
+       FROM wh347_supplements ws
+       JOIN workers w ON w.id = ws.worker_id
+       WHERE ws.job_site_id = $1 AND ws.week_ending_date = $2
+       ORDER BY worker_name`,
+      [jobSiteId, weekEndingDate]
+    );
+    const existingByWorker = new Map(existing.rows.map((row) => [row.worker_id, row]));
+    const rows = [...workerMap.values()].map((worker) => ({
+      worker_id: worker.worker_id,
+      worker_name: worker.worker_name,
+      paychex_worker_number: worker.paychex_worker_number,
+      week_ending_date: weekEndingDate,
+      ...(existingByWorker.get(worker.worker_id) || {}),
+    }));
+
+    res.json({ rows });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.patch('/supplements', async (req, res) => {
+  try {
+    const {
+      workerId,
+      jobSiteId,
+      weekEndingDate,
+      wage_determination_no,
+      fringe_benefit_credit,
+      fringe_paid_in_lieu,
+      gross_earned_all_work,
+      deduction_withholding,
+      deduction_fica,
+      deduction_other,
+      deduction_other_label,
+      net_pay,
+    } = req.body;
+    const workerResult = await query(
+      `SELECT employee_code
+       FROM workers
+       WHERE id = $1`,
+      [workerId]
+    );
+    const paychexWorkerNumber = workerResult.rows[0]?.employee_code || null;
+
+    const result = await query(
+      `INSERT INTO wh347_supplements (
+         worker_id, job_site_id, week_ending_date, paychex_worker_number, wage_determination_no,
+         fringe_benefit_credit, fringe_paid_in_lieu, gross_earned_all_work,
+         deduction_withholding, deduction_fica, deduction_other,
+         deduction_other_label, net_pay
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       ON CONFLICT (worker_id, job_site_id, week_ending_date) DO UPDATE SET
+         paychex_worker_number = EXCLUDED.paychex_worker_number,
+         wage_determination_no = EXCLUDED.wage_determination_no,
+         fringe_benefit_credit = EXCLUDED.fringe_benefit_credit,
+         fringe_paid_in_lieu = EXCLUDED.fringe_paid_in_lieu,
+         gross_earned_all_work = EXCLUDED.gross_earned_all_work,
+         deduction_withholding = EXCLUDED.deduction_withholding,
+         deduction_fica = EXCLUDED.deduction_fica,
+         deduction_other = EXCLUDED.deduction_other,
+         deduction_other_label = EXCLUDED.deduction_other_label,
+         net_pay = EXCLUDED.net_pay
+       RETURNING *`,
+      [
+        workerId,
+        jobSiteId,
+        weekEndingDate,
+        paychexWorkerNumber,
+        wage_determination_no || null,
+        fringe_benefit_credit || null,
+        fringe_paid_in_lieu || null,
+        gross_earned_all_work || null,
+        deduction_withholding || null,
+        deduction_fica || null,
+        deduction_other || null,
+        deduction_other_label || null,
+        net_pay || null,
+      ]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/export', async (req, res) => {
+  try {
+    const { jobSiteId, weekEndingDate } = req.body;
+    if (!jobSiteId || !weekEndingDate) {
+      return res.status(400).json({ message: 'jobSiteId and weekEndingDate are required' });
+    }
+
+    const [companyResult, siteResult, hoursRows, supplementsResult] = await Promise.all([
+      query('SELECT * FROM company_settings ORDER BY id LIMIT 1'),
+      query('SELECT * FROM job_sites WHERE id = $1', [jobSiteId]),
+      loadHoursRows(jobSiteId, weekEndingDate),
+      query(
+        `SELECT * FROM wh347_supplements
+         WHERE job_site_id = $1 AND week_ending_date = $2`,
+        [jobSiteId, weekEndingDate]
+      ),
+    ]);
+
+    const company = companyResult.rows[0] || {};
+    const site = siteResult.rows[0];
+    if (!site) return res.status(404).json({ message: 'Job site not found' });
+
+    const templatePath = fs.existsSync(path.join(__dirname, '../assets/wh347.pdf'))
+      ? path.join(__dirname, '../assets/wh347.pdf')
+      : path.join(__dirname, '../assets/WH-347.pdf');
+    if (!fs.existsSync(templatePath)) {
+      return res.status(500).json({ message: 'Place WH-347 template at backend/assets/wh347.pdf' });
+    }
+
+    const templateBytes = fs.readFileSync(templatePath);
+    const templateDoc = await PDFDocument.load(templateBytes);
+    const outDoc = await PDFDocument.create();
+    const font = await outDoc.embedFont(StandardFonts.Helvetica);
+    const black = rgb(0, 0, 0);
+
+    const byWorker = new Map();
+    for (const row of hoursRows) {
+      const workerId = row.id;
+      if (!byWorker.has(workerId)) {
+        byWorker.set(workerId, {
+          id: workerId,
+          first_name: row.first_name || '',
+          last_name: row.last_name || '',
+          worker_type: row.worker_type || 'J',
+          identifying_number: row.identifying_number || '',
+          labor_classification: row.labor_classification || '',
+          pay_rate: Number(row.pay_rate) || 0,
+          days: { mon: { st: 0, ot: 0 }, tue: { st: 0, ot: 0 }, wed: { st: 0, ot: 0 }, thu: { st: 0, ot: 0 }, fri: { st: 0, ot: 0 }, sat: { st: 0, ot: 0 }, sun: { st: 0, ot: 0 } },
+        });
+      }
+      const worker = byWorker.get(workerId);
+      const key = dayKey(row.entry_date);
+      const isOt = ['OT', 'OVERTIME', 'Overtime'].includes(row.paychex_component_id);
+      worker.days[key][isOt ? 'ot' : 'st'] += Number(row.hours) || 0;
+    }
+
+    const supplementsByWorker = new Map(
+      supplementsResult.rows.map((row) => [row.worker_id, row])
+    );
+    const workers = [...byWorker.values()];
+    const payrollNumber = (site.certified_payroll_count || 0) + 1;
+
+    const pageCount = Math.max(1, Math.ceil(workers.length / 8));
+    for (let i = 0; i < pageCount; i += 1) {
+      const [page] = await outDoc.copyPages(templateDoc, [0]);
+      outDoc.addPage(page);
+      if (i === 0 && templateDoc.getPageCount() > 1) {
+        const [statement] = await outDoc.copyPages(templateDoc, [1]);
+        outDoc.addPage(statement);
+      }
+      console.log(page.getWidth(), page.getHeight());
+
+      const batch = workers.slice(i * 8, i * 8 + 8);
+      page.drawText(site.name || '', { x: 160, y: 714, size: 7, font, color: black });
+      page.drawText(site.contract_number || '', { x: 355, y: 714, size: 7, font, color: black });
+      page.drawText(String(payrollNumber), { x: 510, y: 714, size: 7, font, color: black });
+      page.drawText(company.company_name || '', { x: 160, y: 699, size: 7, font, color: black });
+      page.drawText(site.address || '', { x: 160, y: 684, size: 7, font, color: black });
+      page.drawText(weekEndingDate, { x: 510, y: 684, size: 7, font, color: black });
+      page.drawText(company.company_address || '', { x: 160, y: 669, size: 7, font, color: black });
+
+      batch.forEach((worker, idx) => {
+        const supplement = supplementsByWorker.get(worker.id) || {};
+        const baseY = 638 - idx * 28;
+        const otY = baseY - 12;
+        const totalSt = Object.values(worker.days).reduce((acc, d) => acc + d.st, 0);
+        const totalOt = Object.values(worker.days).reduce((acc, d) => acc + d.ot, 0);
+        const grossThisJob = totalSt * worker.pay_rate + totalOt * worker.pay_rate * 1.5;
+        const totalDeductions =
+          Number(supplement.deduction_withholding || 0) +
+          Number(supplement.deduction_fica || 0) +
+          Number(supplement.deduction_other || 0);
+
+        page.drawText(String(i * 8 + idx + 1), { x: 18, y: baseY, size: 7, font, color: black });
+        page.drawText(worker.last_name, { x: 34, y: baseY, size: 7, font, color: black });
+        page.drawText(worker.first_name, { x: 82, y: baseY, size: 7, font, color: black });
+        page.drawText(String(supplement.paychex_worker_number || worker.identifying_number || ''), { x: 152, y: baseY, size: 7, font, color: black });
+        page.drawText(worker.worker_type, { x: 190, y: baseY, size: 7, font, color: black });
+        page.drawText(worker.labor_classification, { x: 200, y: baseY, size: worker.labor_classification.length > 20 ? 6 : 7, font, color: black });
+        const dayXs = { mon: 268, tue: 290, wed: 312, thu: 334, fri: 356, sat: 378, sun: 400 };
+        Object.entries(dayXs).forEach(([k, x]) => {
+          page.drawText(String(worker.days[k].st || ''), { x, y: baseY, size: 7, font, color: black });
+          page.drawText(String(worker.days[k].ot || ''), { x, y: otY, size: 7, font, color: black });
+        });
+        page.drawText(totalSt.toFixed(2), { x: 424, y: baseY, size: 7, font, color: black });
+        page.drawText(totalOt.toFixed(2), { x: 424, y: otY, size: 7, font, color: black });
+        page.drawText(worker.pay_rate.toFixed(2), { x: 442, y: baseY, size: 7, font, color: black });
+        page.drawText(String(supplement.fringe_benefit_credit || ''), { x: 460, y: baseY, size: 7, font, color: black });
+        page.drawText(String(supplement.fringe_paid_in_lieu || ''), { x: 474, y: baseY, size: 7, font, color: black });
+        page.drawText(grossThisJob.toFixed(2), { x: 488, y: baseY, size: 7, font, color: black });
+        page.drawText(String(supplement.gross_earned_all_work || ''), { x: 504, y: baseY, size: 7, font, color: black });
+        page.drawText(String(supplement.deduction_withholding || ''), { x: 520, y: baseY, size: 7, font, color: black });
+        page.drawText(String(supplement.deduction_fica || ''), { x: 536, y: baseY, size: 7, font, color: black });
+        page.drawText(String(supplement.deduction_other_label || ''), { x: 548, y: baseY, size: 5, font, color: black });
+        page.drawText(String(supplement.deduction_other || ''), { x: 550, y: otY, size: 7, font, color: black });
+        page.drawText(totalDeductions.toFixed(2), { x: 562, y: baseY, size: 7, font, color: black });
+        page.drawText(String(supplement.net_pay || ''), { x: 578, y: baseY, size: 7, font, color: black });
+      });
+    }
+
+    if (outDoc.getPageCount() > 1) {
+      const statement = outDoc.getPage(outDoc.getPageCount() - 1);
+      statement.drawText(site.name || '', { x: 160, y: 714, size: 7, font, color: black });
+      statement.drawText(site.contract_number || '', { x: 355, y: 714, size: 7, font, color: black });
+      statement.drawText(String(payrollNumber), { x: 510, y: 714, size: 7, font, color: black });
+      statement.drawText(company.company_name || '', { x: 160, y: 699, size: 7, font, color: black });
+      statement.drawText(site.address || '', { x: 160, y: 684, size: 7, font, color: black });
+      statement.drawText(weekEndingDate, { x: 510, y: 684, size: 7, font, color: black });
+      statement.drawText(`${company.certifying_official_name || ''} ${company.certifying_official_title || ''}`.trim(), { x: 160, y: 100, size: 7, font, color: black });
+      statement.drawText(company.phone || '', { x: 160, y: 88, size: 7, font, color: black });
+      statement.drawText(company.email || '', { x: 300, y: 88, size: 7, font, color: black });
+    }
+
+    await query(
+      `UPDATE job_sites
+       SET certified_payroll_count = COALESCE(certified_payroll_count, 0) + 1
+       WHERE id = $1`,
+      [jobSiteId]
+    );
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="WH347-${site.job_code}-${weekEndingDate}.pdf"`
+    );
+    res.send(Buffer.from(await outDoc.save()));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+module.exports = router;

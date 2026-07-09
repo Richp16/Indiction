@@ -7,6 +7,10 @@ import SummaryPage from './pages/SummaryPage';
 import PayrollPage from './pages/PayrollPage';
 import ManageUsers from './pages/ManageUsers';
 import Settings from './pages/Settings';
+import CompanySettingsPage from './pages/CompanySettingsPage';
+import JobSitesPage from './pages/JobSitesPage';
+import ClassificationsPage from './pages/ClassificationsPage';
+import CertifiedPayrollPage from './pages/CertifiedPayrollPage';
 
 function HomeRedirect() {
   const { token, isLoading } = useAuth();
@@ -52,7 +56,7 @@ export default function App() {
       <Route
         path="/payroll"
         element={
-          <ProtectedRoute requireAdmin>
+          <ProtectedRoute>
             <PayrollPage />
           </ProtectedRoute>
         }
@@ -70,6 +74,38 @@ export default function App() {
         element={
           <ProtectedRoute requireAdmin>
             <Settings />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/company-settings"
+        element={
+          <ProtectedRoute requireAdmin>
+            <CompanySettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/job-sites"
+        element={
+          <ProtectedRoute requireAdmin>
+            <JobSitesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/classifications"
+        element={
+          <ProtectedRoute requireAdmin>
+            <ClassificationsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/certified-payroll"
+        element={
+          <ProtectedRoute requireAdmin>
+            <CertifiedPayrollPage />
           </ProtectedRoute>
         }
       />

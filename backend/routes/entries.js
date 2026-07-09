@@ -101,9 +101,12 @@ router.post('/', async (req, res) => {
       paychexComponentId,
       payCode,
       entryDate,
+      entry_date,
+      labor_classification_id,
       hours,
       reimbursementAmount,
     } = req.body;
+    const effectiveEntryDate = entry_date || entryDate;
 
     const normalizedJobSiteId = jobSiteId || null;
 
@@ -134,7 +137,7 @@ router.post('/', async (req, res) => {
       payPeriodId = payPeriod.id;
     }
 
-    const weekNumber = determineWeekNumber(entryDate, payPeriod);
+    const weekNumber = determineWeekNumber(effectiveEntryDate, payPeriod);
     if (!weekNumber) {
       return res.status(400).json({ message: 'Entry date does not fall within the current pay period' });
     }
@@ -148,7 +151,7 @@ router.post('/', async (req, res) => {
     });
 
     if (resolved.paychexComponentId === 'REGULAR') {
-      const workedSoFar = await getWorkerWeeklyHours(workerId, entryDate, payPeriodId);
+      const workedSoFar = await getWorkerWeeklyHours(workerId, effectiveEntryDate, payPeriodId);
       const remainingRegular = Math.max(0, OT_WEEKLY_CAP - workedSoFar);
       const requestedHours = resolved.hours;
 
@@ -163,14 +166,14 @@ router.post('/', async (req, res) => {
           `SELECT id FROM time_entries
            WHERE worker_id = $1 AND job_site_id = $2 AND entry_date = $3
              AND pay_period_id = $4 AND paychex_component_id = 'REGULAR'`,
-          [workerId, normalizedJobSiteId, entryDate, payPeriodId]
+          [workerId, normalizedJobSiteId, effectiveEntryDate, payPeriodId]
         );
 
         const otDupCheck = await query(
           `SELECT id FROM time_entries
            WHERE worker_id = $1 AND job_site_id = $2 AND entry_date = $3
              AND pay_period_id = $4 AND paychex_component_id = 'OT'`,
-          [workerId, normalizedJobSiteId, entryDate, payPeriodId]
+          [workerId, normalizedJobSiteId, effectiveEntryDate, payPeriodId]
         );
 
         if (regularDupCheck.rows.length > 0 && otDupCheck.rows.length > 0) {
@@ -186,9 +189,9 @@ router.post('/', async (req, res) => {
           const regularResult = await query(
             `INSERT INTO time_entries (
                worker_id, job_site_id, pay_period_id, paychex_component_id,
-               component_name, component_rate, entry_date, hours,
+               component_name, component_rate, entry_date, labor_classification_id, hours,
                reimbursement_amount, week_number, entered_by
-             ) VALUES ($1, $2, $3, 'REGULAR', $4, $5, $6, $7, 0, $8, $9)
+             ) VALUES ($1, $2, $3, 'REGULAR', $4, $5, $6, $7, $8, 0, $9, $10)
              RETURNING *`,
             [
               workerId,
@@ -196,7 +199,8 @@ router.post('/', async (req, res) => {
               payPeriodId,
               resolved.componentName,
               resolved.componentRate,
-              entryDate,
+              effectiveEntryDate,
+              labor_classification_id || null,
               regularHours,
               weekNumber,
               req.user.userId,
@@ -213,16 +217,17 @@ router.post('/', async (req, res) => {
           const otResult = await query(
             `INSERT INTO time_entries (
                worker_id, job_site_id, pay_period_id, paychex_component_id,
-               component_name, component_rate, entry_date, hours,
+               component_name, component_rate, entry_date, labor_classification_id, hours,
                reimbursement_amount, week_number, entered_by
-             ) VALUES ($1, $2, $3, 'OT', 'Overtime', $4, $5, $6, 0, $7, $8)
+             ) VALUES ($1, $2, $3, 'OT', 'Overtime', $4, $5, $6, $7, 0, $8, $9)
              RETURNING *`,
             [
               workerId,
               normalizedJobSiteId,
               payPeriodId,
               resolved.componentRate,
-              entryDate,
+              effectiveEntryDate,
+              labor_classification_id || null,
               otHoursToInsert,
               weekNumber,
               req.user.userId,
@@ -253,7 +258,7 @@ router.post('/', async (req, res) => {
       [
         workerId,
         normalizedJobSiteId,
-        entryDate,
+        effectiveEntryDate,
         payPeriodId,
         resolved.paychexComponentId,
       ]
@@ -272,9 +277,9 @@ router.post('/', async (req, res) => {
     const result = await query(
       `INSERT INTO time_entries (
          worker_id, job_site_id, pay_period_id, paychex_component_id, component_name,
-         component_rate, entry_date, hours, reimbursement_amount, week_number, entered_by
+         component_rate, entry_date, labor_classification_id, hours, reimbursement_amount, week_number, entered_by
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
         workerId,
@@ -283,7 +288,8 @@ router.post('/', async (req, res) => {
         resolved.paychexComponentId,
         resolved.componentName,
         resolved.componentRate,
-        entryDate,
+        effectiveEntryDate,
+        labor_classification_id || null,
         resolved.hours,
         resolved.reimbursementAmount,
         weekNumber,
@@ -351,7 +357,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.put('/:id', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
+async function updateEntry(req, res) {
   try {
     const { hours, reimbursementAmount } = req.body;
 
@@ -385,7 +391,10 @@ router.put('/:id', requireRole('system_admin', 'payroll_admin'), async (req, res
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}
+
+router.put('/:id', requireRole('system_admin', 'payroll_admin'), updateEntry);
+router.patch('/:id', requireRole('system_admin', 'payroll_admin'), updateEntry);
 
 router.delete('/:id', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {

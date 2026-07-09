@@ -11,6 +11,9 @@ const summaryRoutes = require('./routes/summary');
 const submitRoutes = require('./routes/submit');
 const settingsRoutes = require('./routes/settings');
 const usersRoutes = require('./routes/users');
+const laborClassificationsRoutes = require('./routes/laborClassifications');
+const companySettingsRoutes = require('./routes/companySettings');
+const certifiedPayrollRoutes = require('./routes/certifiedPayroll');
 const { runFullSync } = require('./services/paychexSync');
 const { startCronJobs } = require('./cron/jobs');
 
@@ -38,6 +41,10 @@ app.get('/api/alerts', summaryRoutes.getAlerts);
 app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/submit', submitRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/labor-classifications', laborClassificationsRoutes);
+app.use('/api/company-settings', companySettingsRoutes);
+app.use('/api/certified-payroll', certifiedPayrollRoutes);
+// Mount last: settings router is on /api and applies system_admin guard to all unmatched /api paths
 app.use('/api', settingsRoutes);
 
 async function startup() {

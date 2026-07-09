@@ -210,37 +210,12 @@ async function syncPayComponents() {
 }
 
 async function syncJobSites() {
-  try {
-    const jobs = await paychexGet(`/companies/${companyId()}/jobs`);
-    let count = 0;
-
-    for (const job of jobs) {
-      const paychexJobId = job.jobId;
-      const name = job.jobName || job.name || '';
-      const isActive = job.endDate ? new Date(job.endDate) > new Date() : true;
-
-      await query(
-        `INSERT INTO job_sites (paychex_job_id, name, is_active, last_synced_at)
-         VALUES ($1, $2, $3, now())
-         ON CONFLICT (paychex_job_id) DO UPDATE SET
-           name = EXCLUDED.name,
-           is_active = EXCLUDED.is_active,
-           last_synced_at = now()`,
-        [paychexJobId, name, isActive]
-      );
-      count += 1;
-    }
-
-    await logSync('job_sites', 'SUCCESS', `Synced ${count} job sites`);
-    return { syncType: 'job_sites', status: 'SUCCESS', message: `Synced ${count} job sites` };
-  } catch (error) {
-    const status = error.response?.status;
-    const data = error.response?.data;
-    const message = data ? `Status ${status}: ${JSON.stringify(data)}` : (error.message || 'Unknown error');
-    console.error('Paychex sync error:', status, data || error.message);
-    await logSync('job_sites', 'FAILED', message);
-    return { syncType: 'job_sites', status: 'FAILED', message };
-  }
+  await logSync('job_sites', 'SUCCESS', 'Job site sync disabled (managed locally)');
+  return {
+    syncType: 'job_sites',
+    status: 'SUCCESS',
+    message: 'Job site sync disabled (managed locally)',
+  };
 }
 
 async function syncPayPeriods() {
@@ -317,7 +292,6 @@ async function runFullSync() {
   results.push(await syncWorkers());
   results.push(await syncWorkerPayRates());
   results.push(await syncPayComponents());
-  results.push(await syncJobSites());
   results.push(await syncPayPeriods());
   return results;
 }

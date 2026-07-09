@@ -51,7 +51,7 @@ router.get('/settings/workers', async (req, res) => {
 router.get('/settings/job-sites', async (req, res) => {
   try {
     const result = await query(
-      `SELECT id, paychex_job_id, name, is_active, last_synced_at
+      `SELECT id, job_code, name, address, contract_number, certified_payroll_count, is_active
        FROM job_sites
        ORDER BY name`
     );

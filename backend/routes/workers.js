@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('../db');
 const { isReimbursementComponentName } = require('../config/paychex');
 const { getWeekBounds } = require('../services/entryPayCode');
+const { requireRole } = require('../middleware/roleGuard');
 
 const router = express.Router();
 
@@ -137,6 +138,28 @@ router.get('/:id/pay-components', async (req, res) => {
     }));
 
     res.json(components);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.patch('/:id', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
+  try {
+    const { worker_type } = req.body;
+    if (!['J', 'RA'].includes(worker_type)) {
+      return res.status(400).json({ message: 'worker_type must be J or RA' });
+    }
+    const result = await query(
+      `UPDATE workers
+       SET worker_type = $1
+       WHERE id = $2
+       RETURNING id, worker_type`,
+      [worker_type, req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Worker not found' });
+    }
+    res.json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

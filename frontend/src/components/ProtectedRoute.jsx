@@ -7,27 +7,59 @@ function AppLayout({ children }) {
 
   return (
     <div>
-      <nav style={{ padding: '1rem', borderBottom: '1px solid #ccc', marginBottom: '1rem' }}>
-        <Link to="/daily-entry" style={{ marginRight: '1rem' }}>
-          Daily Entry
-        </Link>
-        <Link to="/summary" style={{ marginRight: '1rem' }}>
-          Summary
-        </Link>
-        {isAdmin && (
-          <>
-            <Link to="/payroll" style={{ marginRight: '1rem' }}>
-              Payroll
-            </Link>
-            <Link to="/admin/users" style={{ marginRight: '1rem' }}>
-              Manage Users
-            </Link>
-          </>
-        )}
-        {user?.email && <span style={{ marginRight: '1rem' }}>{user.email}</span>}
-        <button type="button" onClick={logout}>
-          Logout
-        </button>
+      <nav
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: '1rem',
+          padding: '1rem',
+          borderBottom: '1px solid #ccc',
+          marginBottom: '1rem',
+        }}
+      >
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+          <Link to="/daily-entry">Daily Entry</Link>
+          <Link to="/summary">Summary</Link>
+          <Link to="/payroll">Payroll</Link>
+          {isAdmin && (
+            <>
+              <Link to="/certified-payroll">Certified Payroll</Link>
+              <Link to="/company-settings">Company Settings</Link>
+              <Link to="/admin/job-sites">Job Sites</Link>
+              <Link to="/admin/classifications">Classifications</Link>
+              <Link to="/admin/users">Manage Users</Link>
+            </>
+          )}
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            gap: '0.25rem',
+            flexShrink: 0,
+          }}
+        >
+          {user?.email && (
+            <span style={{ fontSize: '0.875rem', color: '#666' }}>{user.email}</span>
+          )}
+          <button
+            type="button"
+            onClick={logout}
+            style={{
+              fontSize: '0.75rem',
+              padding: '0.25rem 0.625rem',
+              border: '1px solid #ccc',
+              borderRadius: 4,
+              background: '#f7f7f7',
+              color: '#555',
+              cursor: 'pointer',
+            }}
+          >
+            Logout
+          </button>
+        </div>
       </nav>
       <main style={{ padding: '0 1rem 2rem' }}>{children}</main>
     </div>

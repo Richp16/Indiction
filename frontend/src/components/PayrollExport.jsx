@@ -191,7 +191,7 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
         Items (Settings → Pay Items → Payroll). Job Numbers are pulled from your synced job sites.
       </p>
 
-      {showInstructions && (
+      {showInstructions && isAdmin && (
         <div
           style={{
             marginTop: '1rem',
@@ -317,15 +317,17 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
         </div>
       )}
 
-      <div style={{ marginTop: '1rem' }}>
-        <button
-          type="button"
-          onClick={handleDownload}
-          disabled={loading || downloading || hasValidationErrors || exportRows.length === 0}
-        >
-          {downloading ? 'Downloading…' : 'Download Payroll CSV'}
-        </button>
-      </div>
+      {isAdmin && (
+        <div style={{ marginTop: '1rem' }}>
+          <button
+            type="button"
+            onClick={handleDownload}
+            disabled={loading || downloading || hasValidationErrors || exportRows.length === 0}
+          >
+            {downloading ? 'Downloading…' : 'Download Payroll CSV'}
+          </button>
+        </div>
+      )}
 
       {rowPendingDelete && (
         <div

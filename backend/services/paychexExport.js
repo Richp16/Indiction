@@ -1,5 +1,4 @@
 const { query } = require('../db');
-const { paychexGet } = require('./paychexSync');
 
 const EXPORT_CSV_HEADERS = [
   'Company ID',
@@ -19,7 +18,7 @@ SELECT
   TRIM(w.first_name || ' ' || w.last_name) AS worker_name,
   w.employee_code                          AS worker_id,
   te.job_site_id,
-  js.paychex_job_id                        AS paychex_job_id,
+  js.job_code                              AS job_number,
   js.name                                  AS job_name,
   te.paychex_component_id                  AS pay_component,
   SUM(te.hours)                            AS hours,
@@ -39,7 +38,7 @@ GROUP BY
   w.last_name,
   w.employee_code,
   te.job_site_id,
-  js.paychex_job_id,
+  js.job_code,
   js.name,
   te.paychex_component_id,
   pp.start_date,
@@ -50,28 +49,6 @@ ORDER BY
   COALESCE(js.name, 'General'),
   te.paychex_component_id
 `;
-
-async function loadPaychexJobCodeMap() {
-  const companyId = process.env.PAYCHEX_COMPANY_ID;
-  if (!companyId) {
-    return new Map();
-  }
-
-  try {
-    const jobs = await paychexGet(`/companies/${companyId}/jobs`);
-    const map = new Map();
-    for (const job of jobs) {
-      const jobCode = job.jobNumber?.segment1;
-      if (job.jobId && jobCode) {
-        map.set(String(job.jobId), String(jobCode));
-      }
-    }
-    return map;
-  } catch (error) {
-    console.warn('[paychexExport] Could not load Paychex job codes:', error.message);
-    return new Map();
-  }
-}
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -194,16 +171,13 @@ async function generateSPIRows(payPeriodId) {
   }
 
   const aggResult = await query(AGGREGATION_SQL, [payPeriodId]);
-  const jobCodeMap = await loadPaychexJobCodeMap();
   const rows = [];
 
   for (const agg of aggResult.rows) {
     const payCode = agg.pay_component;
     const payComponentName = resolvePayComponentName(payCode, agg.component_name);
     const totalHours = parseFloat(agg.hours) || 0;
-    const jobNumber = agg.paychex_job_id
-      ? jobCodeMap.get(String(agg.paychex_job_id)) || ''
-      : '';
+    const jobNumber = agg.job_number ? String(agg.job_number) : '';
 
     if (totalHours <= 0) {
       continue;

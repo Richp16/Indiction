@@ -1,5 +1,5 @@
 const express = require('express');
-const { requireRole } = require('../middleware/roleGuard');
+const { requireAuth, requireRole } = require('../middleware/roleGuard');
 const {
   generateSPIRows,
   generateSPICSV,
@@ -13,9 +13,32 @@ const router = express.Router();
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-router.use(requireRole('payroll_admin', 'system_admin'));
+router.get('/:payPeriodId/preview', requireAuth, async (req, res) => {
+  try {
+    const { payPeriodId } = req.params;
 
-router.delete('/:payPeriodId/row', async (req, res) => {
+    if (!payPeriodId || !UUID_RE.test(payPeriodId)) {
+      return res.status(400).json({ message: 'Invalid pay period ID' });
+    }
+
+    const result = await generateSPIRows(payPeriodId);
+
+    if (result.notFound) {
+      return res.status(404).json({ message: 'Pay period not found' });
+    }
+
+    res.json({
+      rows: result.rows,
+      warnings: result.warnings,
+      payPeriod: result.payPeriod,
+      clientCode: process.env.PAYCHEX_CLIENT_CODE || result.clientCode || 'payroll',
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.delete('/:payPeriodId/row', requireRole('payroll_admin', 'system_admin'), async (req, res) => {
   try {
     const { payPeriodId } = req.params;
     const { workerDbId, jobSiteId, payComponent } = req.body;
@@ -51,32 +74,7 @@ router.delete('/:payPeriodId/row', async (req, res) => {
   }
 });
 
-router.get('/:payPeriodId/preview', async (req, res) => {
-  try {
-    const { payPeriodId } = req.params;
-
-    if (!payPeriodId || !UUID_RE.test(payPeriodId)) {
-      return res.status(400).json({ message: 'Invalid pay period ID' });
-    }
-
-    const result = await generateSPIRows(payPeriodId);
-
-    if (result.notFound) {
-      return res.status(404).json({ message: 'Pay period not found' });
-    }
-
-    res.json({
-      rows: result.rows,
-      warnings: result.warnings,
-      payPeriod: result.payPeriod,
-      clientCode: process.env.PAYCHEX_CLIENT_CODE || result.clientCode || 'payroll',
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-router.post('/:payPeriodId/download', async (req, res) => {
+router.post('/:payPeriodId/download', requireRole('payroll_admin', 'system_admin'), async (req, res) => {
   try {
     const { payPeriodId } = req.params;
     const { rows } = req.body;

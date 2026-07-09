@@ -73,7 +73,7 @@ async function submitWorkerPayroll({
       if (line.entryType === 'HOURS' && line.totalHours > 0) {
         const hoursPayload = buildHoursEarningPayload({
           componentId: line.paychexComponentId,
-          jobId: line.paychexJobId,
+          jobId: line.job_code,
           payHours: line.totalHours,
         });
         await paychexPost(`/checks/${checkId}/paycomponents`, hoursPayload);
@@ -82,7 +82,7 @@ async function submitWorkerPayroll({
       if (line.entryType === 'REIMBURSEMENT' && line.totalReimbursement > 0) {
         const reimbPayload = buildReimbursementEarningPayload({
           componentId: line.paychexComponentId,
-          jobId: line.paychexJobId,
+          jobId: line.job_code,
           payAmount: line.totalReimbursement,
         });
         await paychexPost(`/checks/${checkId}/paycomponents`, reimbPayload);

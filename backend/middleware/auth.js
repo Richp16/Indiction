@@ -10,6 +10,7 @@ function auth(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = { userId: decoded.userId, role: decoded.role };
+    console.log('[AUTH]', req.method, req.path, 'user:', req.user?.userId, 'role:', req.user?.role);
     next();
   } catch {
     return res.status(401).json({ message: 'Unauthorized' });

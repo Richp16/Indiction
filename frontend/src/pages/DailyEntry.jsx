@@ -41,6 +41,8 @@ export default function DailyEntry() {
   const [searchText, setSearchText] = useState('');
   const [workerResults, setWorkerResults] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState(null);
+  const [classifications, setClassifications] = useState([]);
+  const [laborClassificationId, setLaborClassificationId] = useState('');
   const [selectedPayCodeId, setSelectedPayCodeId] = useState('');
   const [entryDate, setEntryDate] = useState(getToday());
   const [hours, setHours] = useState('');
@@ -64,12 +66,14 @@ export default function DailyEntry() {
       setLoading(true);
       setError('');
       try {
-        const [periodData, sitesData] = await Promise.all([
+        const [periodData, sitesData, classificationsData] = await Promise.all([
           apiGet('/api/pay-periods/current', token),
           apiGet('/api/job-sites', token),
+          apiGet('/api/labor-classifications', token),
         ]);
         setPeriod(periodData);
-        setJobSites(sitesData);
+        setJobSites((sitesData || []).filter((site) => site.is_active !== false));
+        setClassifications(classificationsData || []);
       } catch (err) {
         setError(err.message || 'Failed to load page data');
       } finally {
@@ -157,6 +161,14 @@ export default function DailyEntry() {
       setError('Please complete all required fields');
       return;
     }
+    if (!entryDate) {
+      setError('Work Date is required');
+      return;
+    }
+    if (!laborClassificationId) {
+      setError('Labor Classification is required');
+      return;
+    }
 
     const jobSiteId = selectedJobSiteId || null;
 
@@ -174,7 +186,8 @@ export default function DailyEntry() {
       workerId: selectedWorker.id,
       jobSiteId,
       payPeriodId: period.id,
-      entryDate,
+      entry_date: entryDate,
+      labor_classification_id: Number(laborClassificationId),
       hours: isReimbursementEntry ? 0 : Number(hours) || 0,
       reimbursementAmount: isReimbursementEntry ? Number(reimbursement) : 0,
       payCode: selectedPayCodeId,
@@ -220,6 +233,20 @@ export default function DailyEntry() {
       {savedMessage && <p style={{ color: 'green' }}>{savedMessage}</p>}
 
       <form onSubmit={handleSubmit} style={{ maxWidth: 480 }}>
+        <div style={{ marginBottom: '1rem' }}>
+          <label htmlFor="entry-date">Work Date</label>
+          <input
+            id="entry-date"
+            type="date"
+            value={entryDate}
+            min={period?.start_date}
+            max={period?.end_date}
+            onChange={(e) => setEntryDate(e.target.value)}
+            required
+            style={{ display: 'block', width: '100%', padding: '0.5rem' }}
+          />
+        </div>
+
         <div style={{ marginBottom: '1rem' }}>
           <label htmlFor="job-site">Worksite</label>
           <select
@@ -283,6 +310,25 @@ export default function DailyEntry() {
           )}
         </div>
 
+        <div style={{ marginBottom: '1rem' }}>
+          <label htmlFor="labor-classification">Labor Classification</label>
+          <select
+            id="labor-classification"
+            value={laborClassificationId}
+            onChange={(e) => setLaborClassificationId(e.target.value)}
+            required
+            disabled={!selectedWorker}
+            style={{ display: 'block', width: '100%', padding: '0.5rem' }}
+          >
+            <option value="">Select classification…</option>
+            {classifications.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {selectedWorker && (
           <div
             style={{
@@ -339,20 +385,6 @@ export default function DailyEntry() {
               <option value={GENERIC_REIMBURSE_CODE.id}>{GENERIC_REIMBURSE_CODE.label}</option>
             </optgroup>
           </select>
-        </div>
-
-        <div style={{ marginBottom: '1rem' }}>
-          <label htmlFor="entry-date">Date</label>
-          <input
-            id="entry-date"
-            type="date"
-            value={entryDate}
-            min={period?.start_date}
-            max={period?.end_date}
-            onChange={(e) => setEntryDate(e.target.value)}
-            required
-            style={{ display: 'block', width: '100%', padding: '0.5rem' }}
-          />
         </div>
 
         {!isReimbursementEntry && (

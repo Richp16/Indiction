@@ -1,3 +1,10 @@
+function requireAuth(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+  next();
+}
+
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user) {
@@ -10,4 +17,4 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { requireRole };
+module.exports = { requireAuth, requireRole };
