@@ -4,57 +4,36 @@ const path = require('path');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
+const {
+  getWeekWindow,
+  loadHoursRows,
+  getClosedPayPeriods,
+  buildSupplementRows,
+  clearSupplementCache,
+  fetchAndCacheCheckData,
+  resolvePayPeriodWeekEnds,
+  resolvePayPeriodContext,
+  mergeBiweeklySupplementFields,
+} = require('../services/certifiedPayrollService');
+const { fetchChecksForWorkers } = require('../services/paychexCheckData');
 
 const router = express.Router();
 router.use(requireRole('system_admin', 'payroll_admin'));
-
-function getWeekWindow(weekEndingDate) {
-  const end = new Date(`${weekEndingDate}T12:00:00`);
-  const start = new Date(end);
-  start.setDate(end.getDate() - 6);
-  return {
-    weekStart: start.toISOString().split('T')[0],
-    weekEnd: end.toISOString().split('T')[0],
-  };
-}
 
 function dayKey(dateStr) {
   const date = new Date(`${dateStr}T12:00:00`);
   return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()];
 }
 
-async function loadHoursRows(jobSiteId, weekEndingDate) {
-  const { weekStart, weekEnd } = getWeekWindow(weekEndingDate);
-  const result = await query(
-    `SELECT
-       w.id,
-       w.first_name,
-       w.last_name,
-       w.employee_code AS identifying_number,
-       w.worker_type,
-       COALESCE(w.standard_rate, 0) AS pay_rate,
-       lc.name AS labor_classification,
-       te.id AS entry_id,
-       te.entry_date::text AS entry_date,
-       te.labor_classification_id,
-       te.paychex_component_id,
-       SUM(te.hours) AS hours
-     FROM time_entries te
-     JOIN workers w ON te.worker_id = w.id
-     LEFT JOIN labor_classifications lc ON te.labor_classification_id = lc.id
-     WHERE te.job_site_id = $1
-       AND te.entry_date BETWEEN $2 AND $3
-       AND te.entry_date IS NOT NULL
-       AND te.paychex_component_id IN ('REGULAR','HOURLY','Hourly','Regular','OT','OVERTIME','Overtime')
-     GROUP BY
-       w.id, w.first_name, w.last_name,
-       w.employee_code, w.worker_type, w.standard_rate,
-       lc.name, te.id, te.entry_date, te.paychex_component_id, te.labor_classification_id
-     ORDER BY w.last_name, te.entry_date`,
-    [jobSiteId, weekStart, weekEnd]
-  );
-  return result.rows;
-}
+router.get('/pay-periods', async (_req, res) => {
+  try {
+    const periods = await getClosedPayPeriods();
+    res.json({ periods });
+  } catch (error) {
+    console.error('[certified-payroll/pay-periods]', error.message);
+    res.status(500).json({ message: error.message });
+  }
+});
 
 router.get('/hours', async (req, res) => {
   try {
@@ -71,43 +50,83 @@ router.get('/hours', async (req, res) => {
 
 router.get('/supplements', async (req, res) => {
   try {
-    const { jobSiteId, weekEndingDate } = req.query;
-    if (!jobSiteId || !weekEndingDate) {
-      return res.status(400).json({ message: 'jobSiteId and weekEndingDate are required' });
+    const { jobSiteId, weekEndingDate, payPeriodId, forceRefresh } = req.query;
+    if (!jobSiteId || !weekEndingDate || !payPeriodId) {
+      return res.status(400).json({
+        message: 'jobSiteId, weekEndingDate, and payPeriodId are required',
+      });
     }
 
-    const hoursRows = await loadHoursRows(jobSiteId, weekEndingDate);
-    const workerMap = new Map();
-    for (const row of hoursRows) {
-      if (!workerMap.has(row.id)) {
-        workerMap.set(row.id, {
-          worker_id: row.id,
-          worker_name: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
-          paychex_worker_number: row.identifying_number || '',
-        });
-      }
-    }
+    const periodWeeks = await resolvePayPeriodContext(payPeriodId);
 
-    const existing = await query(
-      `SELECT ws.*, TRIM(w.first_name || ' ' || w.last_name) AS worker_name,
-              w.employee_code AS paychex_worker_number
-       FROM wh347_supplements ws
-       JOIN workers w ON w.id = ws.worker_id
-       WHERE ws.job_site_id = $1 AND ws.week_ending_date = $2
-       ORDER BY worker_name`,
-      [jobSiteId, weekEndingDate]
-    );
-    const existingByWorker = new Map(existing.rows.map((row) => [row.worker_id, row]));
-    const rows = [...workerMap.values()].map((worker) => ({
-      worker_id: worker.worker_id,
-      worker_name: worker.worker_name,
-      paychex_worker_number: worker.paychex_worker_number,
-      week_ending_date: weekEndingDate,
-      ...(existingByWorker.get(worker.worker_id) || {}),
-    }));
-
-    res.json({ rows });
+    const result = await buildSupplementRows({
+      jobSiteId,
+      weekEndingDate,
+      payPeriodId,
+      payPeriodStart: periodWeeks?.payPeriodStart,
+      payPeriodEnd: periodWeeks?.payPeriodEnd,
+      forceRefresh: forceRefresh === 'true',
+    });
+    res.json(result);
   } catch (error) {
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message });
+  }
+});
+
+router.post('/fetch-check-data', async (req, res) => {
+  try {
+    const { payPeriodId, workerIds, jobSiteId, weekEndingDate } = req.body;
+    if (!payPeriodId || !Array.isArray(workerIds) || workerIds.length === 0) {
+      return res.status(400).json({ message: 'payPeriodId and workerIds are required' });
+    }
+
+    if (jobSiteId && weekEndingDate) {
+      const cached = await fetchAndCacheCheckData({
+        payPeriodId,
+        jobSiteId,
+        weekEndingDate,
+        workerIds,
+      });
+      return res.json({ checks: cached });
+    }
+
+    const checks = await fetchChecksForWorkers({ payPeriodId, workerIds });
+    res.json({ checks });
+  } catch (error) {
+    console.error('[certified-payroll/fetch-check-data]', error.message);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/resync', async (req, res) => {
+  try {
+    const { jobSiteId, payPeriodId, weekEndingDate, week1End, week2End } = req.body;
+    if (!jobSiteId || !payPeriodId || !weekEndingDate) {
+      return res.status(400).json({
+        message: 'jobSiteId, payPeriodId, and weekEndingDate are required',
+      });
+    }
+
+    const weekEndingDates = [week1End, week2End, weekEndingDate].filter(Boolean);
+    await clearSupplementCache({ jobSiteId, weekEndingDates: [...new Set(weekEndingDates)] });
+
+    const periodWeeks = await resolvePayPeriodContext(payPeriodId, { week1End, week2End });
+
+    const result = await buildSupplementRows({
+      jobSiteId,
+      weekEndingDate,
+      payPeriodId,
+      payPeriodStart: periodWeeks?.payPeriodStart,
+      payPeriodEnd: periodWeeks?.payPeriodEnd,
+      week1End,
+      week2End,
+      forceRefresh: true,
+    });
+
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('[certified-payroll/resync]', error.message);
     res.status(500).json({ message: error.message });
   }
 });
@@ -138,7 +157,8 @@ router.patch('/supplements', async (req, res) => {
 
     const result = await query(
       `INSERT INTO wh347_supplements (
-         worker_id, job_site_id, week_ending_date, paychex_worker_number, wage_determination_no,
+         worker_id, job_site_id, week_ending_date, paychex_worker_number,
+         wage_determination_no,
          fringe_benefit_credit, fringe_paid_in_lieu, gross_earned_all_work,
          deduction_withholding, deduction_fica, deduction_other,
          deduction_other_label, net_pay
@@ -179,10 +199,15 @@ router.patch('/supplements', async (req, res) => {
 
 router.post('/export', async (req, res) => {
   try {
-    const { jobSiteId, weekEndingDate } = req.body;
+    const { jobSiteId, weekEndingDate, payPeriodId } = req.body;
     if (!jobSiteId || !weekEndingDate) {
       return res.status(400).json({ message: 'jobSiteId and weekEndingDate are required' });
     }
+
+    const periodWeeks = payPeriodId ? await resolvePayPeriodWeekEnds(payPeriodId) : null;
+    const supplementWeekDates = periodWeeks?.weekEndingDates?.length
+      ? periodWeeks.weekEndingDates
+      : [weekEndingDate];
 
     const [companyResult, siteResult, hoursRows, supplementsResult] = await Promise.all([
       query('SELECT * FROM company_settings ORDER BY id LIMIT 1'),
@@ -190,8 +215,8 @@ router.post('/export', async (req, res) => {
       loadHoursRows(jobSiteId, weekEndingDate),
       query(
         `SELECT * FROM wh347_supplements
-         WHERE job_site_id = $1 AND week_ending_date = $2`,
-        [jobSiteId, weekEndingDate]
+         WHERE job_site_id = $1 AND week_ending_date = ANY($2::date[])`,
+        [jobSiteId, supplementWeekDates]
       ),
     ]);
 
@@ -233,9 +258,21 @@ router.post('/export', async (req, res) => {
       worker.days[key][isOt ? 'ot' : 'st'] += Number(row.hours) || 0;
     }
 
-    const supplementsByWorker = new Map(
-      supplementsResult.rows.map((row) => [row.worker_id, row])
-    );
+    const supplementsByWorker = new Map();
+    for (const row of supplementsResult.rows) {
+      const workerId = row.worker_id;
+      const existing = supplementsByWorker.get(workerId);
+      if (!existing) {
+        supplementsByWorker.set(workerId, row);
+        continue;
+      }
+      const selectedDate = String(weekEndingDate).split('T')[0];
+      const existingDate = String(existing.week_ending_date).split('T')[0];
+      const rowDate = String(row.week_ending_date).split('T')[0];
+      const primary = rowDate === selectedDate ? row : existingDate === selectedDate ? existing : row;
+      const fallback = primary === row ? existing : row;
+      supplementsByWorker.set(workerId, mergeBiweeklySupplementFields(primary, fallback));
+    }
     const workers = [...byWorker.values()];
     const payrollNumber = (site.certified_payroll_count || 0) + 1;
 

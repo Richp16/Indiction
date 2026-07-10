@@ -112,13 +112,13 @@ function getWeekBounds(dateStr) {
 async function getWorkerWeeklyHours(workerId, entryDate, payPeriodId) {
   const { monday, friday } = getWeekBounds(entryDate);
   const result = await query(
-    `SELECT COALESCE(SUM(hours), 0) AS total_hours
-     FROM time_entries
+    `SELECT COALESCE(SUM(hours_worked), 0) AS total_hours
+     FROM daily_time_entries
      WHERE worker_id = $1
        AND pay_period_id = $2
-       AND entry_date >= $3
-       AND entry_date <= $4
-       AND paychex_component_id IN ('REGULAR', 'OT')`,
+       AND date_worked >= $3
+       AND date_worked <= $4
+       AND pay_code IN ('REGULAR', 'OT')`,
     [workerId, payPeriodId, monday, friday]
   );
   return Number(result.rows[0].total_hours);

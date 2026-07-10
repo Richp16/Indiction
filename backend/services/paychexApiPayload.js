@@ -6,6 +6,7 @@ const {
   isReimbursementComponentName,
   getConfiguredComponentId,
 } = require('../config/paychex');
+const { mapPaychexComponentToPayCode } = require('../config/payCodeMapping');
 
 class ExportConfigError extends Error {
   constructor(message, payCode) {
@@ -40,19 +41,21 @@ function resolveReimbursementExportComponentId(storedComponentId, workerReimbCom
 }
 
 function resolveExportPaychexComponentId({ storedComponentId, workerReimbComponents }) {
-  if (isHoursPayCode(storedComponentId)) {
-    const componentId = resolveHoursComponentId(storedComponentId);
+  const internalPayCode = mapPaychexComponentToPayCode(storedComponentId);
+
+  if (isHoursPayCode(internalPayCode)) {
+    const componentId = resolveHoursComponentId(internalPayCode);
     if (!componentId) {
-      const definition = getPayCodeDefinition(storedComponentId);
+      const definition = getPayCodeDefinition(internalPayCode);
       throw new ExportConfigError(
-        `Pay code ${storedComponentId} is not mapped to a Paychex pay item; configure ${definition?.envKey}.`,
-        storedComponentId
+        `Pay code ${internalPayCode} is not mapped to a Paychex pay item; configure ${definition?.envKey}.`,
+        internalPayCode
       );
     }
     return {
       componentId,
       entryType: 'HOURS',
-      payCode: storedComponentId,
+      payCode: internalPayCode,
     };
   }
 

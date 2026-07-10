@@ -11,6 +11,8 @@ SELECT
         THEN te.hours * COALESCE(w.standard_rate, 0)
       WHEN te.paychex_component_id IN ('OT', 'OVERTIME', 'Overtime')
         THEN te.hours * COALESCE(w.standard_rate, 0) * ${OT_EARNINGS_MULTIPLIER}
+      WHEN te.paychex_component_id IN ('DT', 'DOUBLETIME', 'Doubletime')
+        THEN te.hours * COALESCE(w.standard_rate, 0) * 2
       WHEN te.paychex_component_id IN ('PTO', 'Vacation', 'Sick')
         THEN te.hours * COALESCE(w.standard_rate, 0)
       ELSE 0
@@ -28,23 +30,23 @@ SELECT
   w.first_name                                                             AS "firstName",
   w.last_name                                                              AS "lastName",
   js.name                                                                  AS "jobSite",
-  COALESCE(SUM(CASE WHEN te.week_number = 1 AND te.paychex_component_id = 'REGULAR' THEN te.hours END), 0)                                        AS "week1Regular",
-  COALESCE(SUM(CASE WHEN te.week_number = 1 AND te.paychex_component_id = 'OT' THEN te.hours END), 0)                                               AS "week1Overtime",
-  COALESCE(SUM(CASE WHEN te.week_number = 1 THEN te.hours END), 0)        AS "week1Total",
-  COALESCE(SUM(CASE WHEN te.week_number = 2 AND te.paychex_component_id = 'REGULAR' THEN te.hours END), 0)                                        AS "week2Regular",
-  COALESCE(SUM(CASE WHEN te.week_number = 2 AND te.paychex_component_id = 'OT' THEN te.hours END), 0)                                               AS "week2Overtime",
-  COALESCE(SUM(CASE WHEN te.week_number = 2 THEN te.hours END), 0)        AS "week2Total",
-  COALESCE(SUM(CASE WHEN te.paychex_component_id = 'REGULAR' THEN te.hours END), 0)                                                               AS "totalRegular",
-  COALESCE(SUM(CASE WHEN te.paychex_component_id = 'OT' THEN te.hours END), 0)                                                                    AS "totalOvertime",
-  COALESCE(SUM(te.hours), 0)                                               AS "totalHours",
-  COALESCE(SUM(CASE WHEN te.component_name ILIKE '%truck%' THEN te.reimbursement_amount END), 0)                                                   AS "truckReimbursement",
-  COALESCE(SUM(CASE WHEN te.component_name NOT ILIKE '%truck%' THEN te.reimbursement_amount END), 0)                                               AS "otherReimbursements",
-  COALESCE(SUM(te.hours * COALESCE(w.standard_rate, 0)), 0) + COALESCE(SUM(te.reimbursement_amount), 0)                                                      AS "total",
+  COALESCE(SUM(CASE WHEN d.week_number = 1 AND d.pay_code = 'REGULAR' THEN d.hours_worked END), 0)                                        AS "week1Regular",
+  COALESCE(SUM(CASE WHEN d.week_number = 1 AND d.pay_code = 'OT' THEN d.hours_worked END), 0)                                               AS "week1Overtime",
+  COALESCE(SUM(CASE WHEN d.week_number = 1 THEN d.hours_worked END), 0)        AS "week1Total",
+  COALESCE(SUM(CASE WHEN d.week_number = 2 AND d.pay_code = 'REGULAR' THEN d.hours_worked END), 0)                                        AS "week2Regular",
+  COALESCE(SUM(CASE WHEN d.week_number = 2 AND d.pay_code = 'OT' THEN d.hours_worked END), 0)                                               AS "week2Overtime",
+  COALESCE(SUM(CASE WHEN d.week_number = 2 THEN d.hours_worked END), 0)        AS "week2Total",
+  COALESCE(SUM(CASE WHEN d.pay_code = 'REGULAR' THEN d.hours_worked END), 0)                                                               AS "totalRegular",
+  COALESCE(SUM(CASE WHEN d.pay_code = 'OT' THEN d.hours_worked END), 0)                                                                    AS "totalOvertime",
+  COALESCE(SUM(d.hours_worked), 0)                                               AS "totalHours",
+  COALESCE(SUM(CASE WHEN d.component_name ILIKE '%truck%' THEN d.reimbursement_amount END), 0)                                                   AS "truckReimbursement",
+  COALESCE(SUM(CASE WHEN d.component_name NOT ILIKE '%truck%' THEN d.reimbursement_amount END), 0)                                               AS "otherReimbursements",
+  COALESCE(SUM(d.hours_worked * COALESCE(w.standard_rate, 0)), 0) + COALESCE(SUM(d.reimbursement_amount), 0)                                                      AS "total",
   MAX(w.standard_rate)                                                                                                                             AS "standardRate"
-FROM time_entries te
-JOIN workers w  ON te.worker_id    = w.id
-JOIN job_sites js ON te.job_site_id = js.id
-WHERE te.pay_period_id = $1
+FROM daily_time_entries d
+JOIN workers w  ON d.worker_id    = w.id
+JOIN job_sites js ON d.job_site_id = js.id
+WHERE d.pay_period_id = $1
 GROUP BY w.employee_code, w.first_name, w.last_name, js.name
 ORDER BY w.last_name, w.first_name, js.name;
 `;

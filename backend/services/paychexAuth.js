@@ -1,7 +1,26 @@
 const axios = require('axios');
+const https = require('https');
+const { getPaychexBaseUrl, PAYCHEX_TIMEOUT_MS } = require('../config/paychexApi');
+const { mapPaychexError } = require('./paychexErrors');
 
 let cachedToken = null;
 let tokenExpiry = 0;
+
+const authHttpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 10,
+});
+
+const authHttp = axios.create({
+  baseURL: getPaychexBaseUrl(),
+  timeout: PAYCHEX_TIMEOUT_MS,
+  httpsAgent: authHttpsAgent,
+});
+
+function clearTokenCache() {
+  cachedToken = null;
+  tokenExpiry = 0;
+}
 
 async function getToken() {
   const fiveMinutesMs = 5 * 60 * 1000;
@@ -9,7 +28,6 @@ async function getToken() {
     return cachedToken;
   }
 
-  const baseUrl = process.env.PAYCHEX_BASE_URL;
   const params = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: process.env.PAYCHEX_CLIENT_ID,
@@ -17,21 +35,16 @@ async function getToken() {
   });
 
   try {
-    const response = await axios.post(
-      `${baseUrl}/auth/oauth/v2/token`,
-      params.toString(),
-      {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      }
-    );
+    const response = await authHttp.post('/auth/oauth/v2/token', params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
 
     cachedToken = response.data.access_token;
     tokenExpiry = Date.now() + response.data.expires_in * 1000;
     return cachedToken;
   } catch (error) {
-    const detail = error.response?.data?.message || error.message;
-    throw new Error(`Paychex authentication failed: ${detail}`);
+    throw mapPaychexError(error, 'OAuth token request');
   }
 }
 
-module.exports = { getToken };
+module.exports = { getToken, clearTokenCache };

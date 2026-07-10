@@ -1,40 +1,8 @@
-const axios = require('axios');
 const { query } = require('../db');
-const { getToken } = require('./paychexAuth');
+const { companyId, getPaychexBaseUrl, PAYCHEX_TIMEOUT_MS } = require('../config/paychexApi');
 const { shouldSyncPayComponent } = require('../config/paychex');
-
-const baseUrl = () => process.env.PAYCHEX_BASE_URL;
-const companyId = () => process.env.PAYCHEX_COMPANY_ID;
-
-async function paychexGet(path) {
-  const token = await getToken();
-  const items = [];
-  let offset = 0;
-  const limit = 100;
-  let hasMore = true;
-
-  while (hasMore) {
-    const separator = path.includes('?') ? '&' : '?';
-    const url = `${baseUrl()}${path}${separator}offset=${offset}&limit=${limit}`;
-    console.log('Paychex GET:', url);
-
-    const response = await axios.get(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const content = response.data.content || [];
-    items.push(...content);
-
-    const pagination = response.data.metadata?.pagination;
-    if (pagination && pagination.itemCount > offset + limit) {
-      offset += limit;
-    } else {
-      hasMore = false;
-    }
-  }
-
-  return items;
-}
+const { paychexGet } = require('./paychexHttp');
+const { formatPaychexErrorForLog } = require('./paychexErrors');
 
 async function logSync(syncType, status, message) {
   await query(
@@ -54,9 +22,27 @@ function addDays(dateStr, days) {
   return date.toISOString().split('T')[0];
 }
 
+function formatSyncError(error) {
+  if (error.paychexErrorType) {
+    return formatPaychexErrorForLog(error);
+  }
+  const status = error.response?.status;
+  const data = error.response?.data;
+  if (status) {
+    return { type: 'http', statusCode: status, message: JSON.stringify(data) };
+  }
+  return { type: 'unknown', message: error.message || 'Unknown error' };
+}
+
 async function fetchWorkerHourlyRate(paychexWorkerId) {
+  const path = `/workers/${paychexWorkerId}/compensation/payrates`;
+  console.log(
+    `[sync] Fetching payrates workerId=${paychexWorkerId} ` +
+      `baseURL=${getPaychexBaseUrl()} timeoutMs=${PAYCHEX_TIMEOUT_MS}`
+  );
+
   try {
-    const rates = await paychexGet(`/workers/${paychexWorkerId}/compensation/payrates`);
+    const rates = await paychexGet(path, { workerId: paychexWorkerId });
     const hourly = rates.find(
       (rate) => rate.rateType === 'HOURLY_RATE' || rate.rateType === 'HOURLY'
     );
@@ -64,7 +50,10 @@ async function fetchWorkerHourlyRate(paychexWorkerId) {
     const amount = hourly.amount ?? hourly.rate ?? hourly.value;
     return amount != null ? parseFloat(amount) : null;
   } catch (error) {
-    console.log(`[sync] Could not fetch HOURLY_RATE for worker ${paychexWorkerId}: ${error.message}`);
+    console.warn(
+      `[sync] Could not fetch HOURLY_RATE for worker ${paychexWorkerId}:`,
+      formatSyncError(error)
+    );
     return null;
   }
 }
@@ -94,10 +83,9 @@ async function syncWorkerPayRates() {
       message: `Synced ${count} worker hourly rates`,
     };
   } catch (error) {
-    const status = error.response?.status;
-    const data = error.response?.data;
-    const message = data ? `Status ${status}: ${JSON.stringify(data)}` : (error.message || 'Unknown error');
-    console.error('Paychex sync error:', status, data || error.message);
+    const detail = formatSyncError(error);
+    const message = detail.message || 'Unknown error';
+    console.error('Paychex sync error:', detail);
     await logSync('worker_pay_rates', 'FAILED', message);
     return { syncType: 'worker_pay_rates', status: 'FAILED', message };
   }
@@ -150,10 +138,9 @@ async function syncWorkers() {
     await logSync('workers', 'SUCCESS', `Synced ${count} workers`);
     return { syncType: 'workers', status: 'SUCCESS', message: `Synced ${count} workers` };
   } catch (error) {
-    const status = error.response?.status;
-    const data = error.response?.data;
-    const message = data ? `Status ${status}: ${JSON.stringify(data)}` : (error.message || 'Unknown error');
-    console.error('Paychex sync error:', status, data || error.message);
+    const detail = formatSyncError(error);
+    const message = detail.message || 'Unknown error';
+    console.error('Paychex sync error:', detail);
     await logSync('workers', 'FAILED', message);
     return { syncType: 'workers', status: 'FAILED', message };
   }
@@ -168,7 +155,8 @@ async function syncPayComponents() {
 
     for (const worker of workers) {
       const components = await paychexGet(
-        `/workers/${worker.paychex_worker_id}/paycomponents`
+        `/workers/${worker.paychex_worker_id}/paycomponents`,
+        { workerId: worker.paychex_worker_id }
       );
 
       for (const component of components) {
@@ -200,10 +188,9 @@ async function syncPayComponents() {
       message: `Synced ${count} pay components`,
     };
   } catch (error) {
-    const status = error.response?.status;
-    const data = error.response?.data;
-    const message = data ? `Status ${status}: ${JSON.stringify(data)}` : (error.message || 'Unknown error');
-    console.error('Paychex sync error:', status, data || error.message);
+    const detail = formatSyncError(error);
+    const message = detail.message || 'Unknown error';
+    console.error('Paychex sync error:', detail);
     await logSync('pay_components', 'FAILED', message);
     return { syncType: 'pay_components', status: 'FAILED', message };
   }
@@ -278,10 +265,9 @@ async function syncPayPeriods() {
       message: `Synced ${count} pay periods`,
     };
   } catch (error) {
-    const status = error.response?.status;
-    const data = error.response?.data;
-    const message = data ? `Status ${status}: ${JSON.stringify(data)}` : (error.message || 'Unknown error');
-    console.error('Paychex sync error:', status, data || error.message);
+    const detail = formatSyncError(error);
+    const message = detail.message || 'Unknown error';
+    console.error('Paychex sync error:', detail);
     await logSync('pay_periods', 'FAILED', message);
     return { syncType: 'pay_periods', status: 'FAILED', message };
   }
@@ -304,5 +290,4 @@ module.exports = {
   syncJobSites,
   syncPayPeriods,
   fetchWorkerHourlyRate,
-  paychexGet,
 };

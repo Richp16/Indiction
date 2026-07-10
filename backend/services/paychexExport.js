@@ -1,4 +1,5 @@
 const { query } = require('../db');
+const { mapPayCodeToPaychexComponent, mapPaychexComponentToPayCode } = require('../config/payCodeMapping');
 
 const EXPORT_CSV_HEADERS = [
   'Company ID',
@@ -10,7 +11,7 @@ const EXPORT_CSV_HEADERS = [
   'Hours',
 ];
 
-const HOURS_PAY_CODES = new Set(['REGULAR', 'OT', 'PTO']);
+const HOURS_PAY_CODES = new Set(['REGULAR', 'OT', 'PTO', 'HOURLY', 'OVERTIME', 'DOUBLETIME']);
 
 const AGGREGATION_SQL = `
 SELECT
@@ -78,9 +79,14 @@ function escapeCsvField(value, { forceQuote = false } = {}) {
 function resolvePayComponentName(payCode, componentName) {
   switch (payCode) {
     case 'REGULAR':
+    case 'HOURLY':
       return process.env.PAYCHEX_REGULAR_COMPONENT_NAME || 'Regular';
     case 'OT':
+    case 'OVERTIME':
       return process.env.PAYCHEX_OT_COMPONENT_NAME || 'Overtime';
+    case 'DT':
+    case 'DOUBLETIME':
+      return process.env.PAYCHEX_DT_COMPONENT_NAME || 'Double Time';
     case 'PTO':
       return process.env.PAYCHEX_PTO_COMPONENT_NAME || 'PTO';
     case 'REIMBURSE':
@@ -265,6 +271,21 @@ async function deletePayrollRow({ payPeriodId, workerDbId, jobSiteId, payCompone
     throw error;
   }
 
+  const internalPayCode = mapPaychexComponentToPayCode(payComponent);
+  const aggregatedComponentId = mapPayCodeToPaychexComponent(internalPayCode);
+
+  await query(
+    `DELETE FROM daily_time_entries
+     WHERE pay_period_id = $1
+       AND worker_id = $2
+       AND pay_code = $3
+       AND (
+         ($4::uuid IS NULL AND job_site_id IS NULL)
+         OR job_site_id = $4::uuid
+       )`,
+    [payPeriodId, workerDbId, internalPayCode, jobSiteId || null]
+  );
+
   const result = await query(
     `DELETE FROM time_entries
      WHERE pay_period_id = $1
@@ -275,7 +296,7 @@ async function deletePayrollRow({ payPeriodId, workerDbId, jobSiteId, payCompone
          OR job_site_id = $4::uuid
        )
      RETURNING id`,
-    [payPeriodId, workerDbId, payComponent, jobSiteId || null]
+    [payPeriodId, workerDbId, aggregatedComponentId, jobSiteId || null]
   );
 
   return result.rowCount;

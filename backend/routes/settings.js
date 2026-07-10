@@ -2,10 +2,20 @@ const express = require('express');
 const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
 const { runFullSync } = require('../services/paychexSync');
+const { checkPaychexConnectivity } = require('../services/paychexHttp');
 
 const router = express.Router();
 
 router.use(requireRole('system_admin'));
+
+router.get('/sync/paychex-health', async (_req, res) => {
+  try {
+    const result = await checkPaychexConnectivity();
+    res.status(result.ok ? 200 : 503).json(result);
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
+  }
+});
 
 router.post('/sync', async (req, res) => {
   try {

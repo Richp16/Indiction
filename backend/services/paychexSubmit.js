@@ -1,24 +1,10 @@
-const axios = require('axios');
 const { query } = require('../db');
-const { getToken } = require('./paychexAuth');
+const { paychexPost } = require('./paychexHttp');
 const {
   buildHoursEarningPayload,
   buildReimbursementEarningPayload,
 } = require('./paychexEarnings');
 const { buildSubmissionPayload, validateExportConfig } = require('./paychexApiPayload');
-
-const baseUrl = () => process.env.PAYCHEX_BASE_URL;
-
-async function paychexPost(path, body) {
-  const token = await getToken();
-  const response = await axios.post(`${baseUrl()}${path}`, body, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  });
-  return response.data;
-}
 
 async function logSubmission({
   payPeriodId,
@@ -296,18 +282,18 @@ async function validatePayroll(payPeriodId) {
   }
 
   const outOfRangeResult = await query(
-    `SELECT w.id AS worker_id, w.first_name, w.last_name, te.entry_date
-     FROM time_entries te
-     JOIN workers w ON te.worker_id = w.id
-     WHERE te.pay_period_id = $1
-       AND (te.entry_date < $2 OR te.entry_date > $3)`,
+    `SELECT w.id AS worker_id, w.first_name, w.last_name, d.date_worked
+     FROM daily_time_entries d
+     JOIN workers w ON d.worker_id = w.id
+     WHERE d.pay_period_id = $1
+       AND (d.date_worked < $2 OR d.date_worked > $3)`,
     [payPeriodId, period.start_date, period.end_date]
   );
 
   for (const row of outOfRangeResult.rows) {
     issues.push({
       type: 'error',
-      message: `Entry date ${row.entry_date} is outside pay period range (${period.start_date} to ${period.end_date})`,
+      message: `Entry date ${row.date_worked} is outside pay period range (${period.start_date} to ${period.end_date})`,
       workerId: row.worker_id,
       workerName: `${row.first_name} ${row.last_name}`,
     });

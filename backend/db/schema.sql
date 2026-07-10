@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS job_sites (
   name             TEXT NOT NULL,
   address          TEXT,
   contract_number  VARCHAR(100),
+  wage_determination_no VARCHAR(100),
   certified_payroll_count INTEGER DEFAULT 0,
   is_active        BOOLEAN DEFAULT true,
   last_synced_at   TIMESTAMPTZ
@@ -63,22 +64,48 @@ CREATE TABLE IF NOT EXISTS labor_classifications (
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE workers
+  ADD COLUMN IF NOT EXISTS labor_classification_id INTEGER REFERENCES labor_classifications(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS daily_time_entries (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  worker_id             UUID NOT NULL REFERENCES workers(id),
+  job_site_id           UUID REFERENCES job_sites(id),
+  date_worked           DATE NOT NULL,
+  hours_worked          NUMERIC(8,2) NOT NULL,
+  regular_hours         NUMERIC(8,2) NOT NULL DEFAULT 0,
+  overtime_hours        NUMERIC(8,2) NOT NULL DEFAULT 0,
+  doubletime_hours      NUMERIC(8,2) NOT NULL DEFAULT 0,
+  pay_period_id         UUID NOT NULL REFERENCES pay_periods(id),
+  pay_period_end_date   DATE NOT NULL,
+  pay_code              TEXT NOT NULL,
+  paychex_component_id  TEXT NOT NULL,
+  component_name        TEXT NOT NULL DEFAULT '',
+  component_rate        NUMERIC(10,2),
+  reimbursement_amount  NUMERIC(10,2) DEFAULT 0,
+  labor_classification_id INTEGER REFERENCES labor_classifications(id) ON DELETE SET NULL,
+  week_number           INTEGER CHECK (week_number IN (1, 2)),
+  entered_by            UUID REFERENCES users(id),
+  created_at            TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (worker_id, job_site_id, date_worked, paychex_component_id)
+);
+
 CREATE TABLE IF NOT EXISTS time_entries (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   worker_id                UUID REFERENCES workers(id),
   job_site_id              UUID REFERENCES job_sites(id),
   pay_period_id            UUID REFERENCES pay_periods(id),
+  pay_period_end_date      DATE NOT NULL,
   paychex_component_id     TEXT NOT NULL,
   component_name           TEXT NOT NULL,
   component_rate           NUMERIC(10,2),
-  hours                    NUMERIC(5,2) NOT NULL,
+  hours                    NUMERIC(8,2) NOT NULL DEFAULT 0,
   reimbursement_amount     NUMERIC(10,2) DEFAULT 0,
-  entry_date               DATE,
   labor_classification_id  INTEGER REFERENCES labor_classifications(id) ON DELETE SET NULL,
-  week_number              INTEGER CHECK (week_number IN (1, 2)),
   entered_by               UUID REFERENCES users(id),
   created_at               TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(worker_id, job_site_id, paychex_component_id, entry_date)
+  updated_at               TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (worker_id, job_site_id, pay_period_id, paychex_component_id)
 );
 
 CREATE TABLE IF NOT EXISTS wh347_supplements (

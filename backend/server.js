@@ -15,6 +15,7 @@ const laborClassificationsRoutes = require('./routes/laborClassifications');
 const companySettingsRoutes = require('./routes/companySettings');
 const certifiedPayrollRoutes = require('./routes/certifiedPayroll');
 const { runFullSync } = require('./services/paychexSync');
+const { checkPaychexConnectivity } = require('./services/paychexHttp');
 const { startCronJobs } = require('./cron/jobs');
 
 const app = express();
@@ -48,6 +49,13 @@ app.use('/api/certified-payroll', certifiedPayrollRoutes);
 app.use('/api', settingsRoutes);
 
 async function startup() {
+  const connectivity = await checkPaychexConnectivity();
+  if (connectivity.ok) {
+    console.log(`${connectivity.message} (baseURL: ${connectivity.baseUrl})`);
+  } else {
+    console.error(connectivity.message, connectivity.error);
+  }
+
   try {
     const results = await runFullSync();
     console.log('Initial Paychex sync completed:', results);
