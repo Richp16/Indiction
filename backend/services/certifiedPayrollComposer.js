@@ -104,6 +104,7 @@ function buildReconciliationWarnings({
   workers,
   checksByWorker,
   workersWithMultipleChecksInSamePayPeriod = [],
+  checksFetchMeta = null,
 }) {
   const hourWorkerPaychexIds = new Set(
     workers.map((w) => w.paychexWorkerId).filter(Boolean).map(String)
@@ -116,6 +117,12 @@ function buildReconciliationWarnings({
       workerId: w.workerId,
       paychexWorkerId: w.paychexWorkerId,
       workerName: w.workerName,
+      ...(checksFetchMeta?.checksUnavailable
+        ? {
+            reason: checksFetchMeta.checksUnavailableCode || 'CHECKS_UNAVAILABLE',
+            message: checksFetchMeta.checksUnavailableMessage || null,
+          }
+        : {}),
     }));
 
   const workersWithHoursButNoPaychexWorkerId = workers
@@ -133,6 +140,17 @@ function buildReconciliationWarnings({
         mapPaychexCheckToSupplementFields(checksByWorker[paychexWorkerId])?.paycheckId || null,
     }));
 
+  const checksUnavailable = checksFetchMeta?.checksUnavailable
+    ? {
+        code: checksFetchMeta.checksUnavailableCode || 'CHECKS_UNAVAILABLE',
+        message:
+          checksFetchMeta.checksUnavailableMessage ||
+          'Paychex checks are not available for this pay period.',
+        periodStatus: checksFetchMeta.periodStatus || null,
+        payPeriodId: checksFetchMeta.payPeriodId || null,
+      }
+    : null;
+
   return {
     workersWithHoursButNoPaychexCheck,
     workersWithHoursButNoPaychexWorkerId,
@@ -140,6 +158,7 @@ function buildReconciliationWarnings({
     workersWithMultipleChecksInSamePayPeriod: workersWithMultipleChecksInSamePayPeriod.map(
       (paychexWorkerId) => ({ paychexWorkerId })
     ),
+    checksUnavailable,
   };
 }
 

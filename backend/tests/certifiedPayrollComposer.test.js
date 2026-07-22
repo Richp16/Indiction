@@ -150,6 +150,37 @@ describe('certified payroll Paychex check mapping', () => {
     assert.equal(warnings.workersWithMultipleChecksInSamePayPeriod.length, 1);
   });
 
+  it('surfaces checksUnavailable for draft/pending payroll periods', () => {
+    const warnings = buildReconciliationWarnings({
+      workers: [
+        {
+          workerId: 'local-1',
+          paychexWorkerId: SUPPORT_WORKER_ID,
+          workerName: 'Jane Doe',
+        },
+      ],
+      checksByWorker: {},
+      checksFetchMeta: {
+        payPeriodId: SUPPORT_PAY_PERIOD_ID,
+        periodStatus: 'DRAFT',
+        checksUnavailable: true,
+        checksUnavailableCode: 'CHECKS_NOT_READY',
+        checksUnavailableMessage:
+          'Checks not yet available — payroll period is still in draft/pending status (or Paychex has not finalized checks for this period).',
+      },
+    });
+
+    assert.ok(warnings.checksUnavailable);
+    assert.equal(warnings.checksUnavailable.code, 'CHECKS_NOT_READY');
+    assert.match(warnings.checksUnavailable.message, /draft\/pending/i);
+    assert.equal(warnings.checksUnavailable.periodStatus, 'DRAFT');
+    assert.equal(warnings.workersWithHoursButNoPaychexCheck.length, 1);
+    assert.equal(
+      warnings.workersWithHoursButNoPaychexCheck[0].reason,
+      'CHECKS_NOT_READY'
+    );
+  });
+
   it('company checks and worker checks agree for a known worker', () => {
     const companyCheck = sampleCheck({ paycheckId: 'company-view' });
     const workerCheck = sampleCheck({ paycheckId: 'worker-view' });

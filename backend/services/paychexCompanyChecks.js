@@ -117,7 +117,9 @@ async function fetchCompanyChecksByPayPeriodId(payPeriodId) {
     return checks.map((check) => check.raw || check);
   } catch (error) {
     logCompanyChecksError(error);
-    return [];
+    const err = error;
+    err._checksFetchFailed = true;
+    throw err;
   }
 }
 
@@ -132,7 +134,11 @@ async function fetchWorkerChecksByPayPeriodId(workerId, payPeriodId) {
   }
 
   try {
-    const checks = await getWorkerChecksByPayPeriod({ workerId, payPeriodId });
+    const checks = await getWorkerChecksByPayPeriod({
+      workerId,
+      payPeriodId,
+      companyId: companyId() || undefined,
+    });
     return checks.map((check) => check.raw || check);
   } catch (error) {
     logCompanyChecksError(error);
@@ -143,8 +149,18 @@ async function fetchWorkerChecksByPayPeriodId(workerId, payPeriodId) {
 /**
  * Fetch checks for a Paychex payPeriodId that exists in paychex_pay_periods.
  * Does not invent IDs; skips unknown local IDs until sync runs.
+ *
+ * @returns {Promise<{ checks: object[], meta: object }>}
  */
 async function getCompanyChecksForHistory({ forceRefresh = false, payPeriodId = null } = {}) {
+  const emptyMeta = {
+    payPeriodId: payPeriodId ? String(payPeriodId) : null,
+    periodStatus: null,
+    checksUnavailable: false,
+    checksUnavailableCode: null,
+    checksUnavailableMessage: null,
+  };
+
   if (!isPaychexPayPeriodId(payPeriodId)) {
     if (!loggedMissingPayPeriodId) {
       loggedMissingPayPeriodId = true;
@@ -153,10 +169,11 @@ async function getCompanyChecksForHistory({ forceRefresh = false, payPeriodId = 
           'Sync pay periods via POST /api/paychex/companies/:companyId/pay-periods/sync first.'
       );
     }
-    return [];
+    return { checks: [], meta: emptyMeta };
   }
 
   const cid = companyId();
+  let periodStatus = null;
   if (cid) {
     const known = await findLocalPayPeriod(cid, payPeriodId);
     if (!known) {
@@ -168,18 +185,56 @@ async function getCompanyChecksForHistory({ forceRefresh = false, payPeriodId = 
           { companyId: cid, payPeriodId: String(payPeriodId) }
         );
       }
-      return [];
+      return {
+        checks: [],
+        meta: {
+          ...emptyMeta,
+          checksUnavailable: true,
+          checksUnavailableCode: 'UNKNOWN_PAY_PERIOD',
+          checksUnavailableMessage:
+            'Unknown payPeriodId for company. Sync pay periods first.',
+        },
+      };
     }
+    periodStatus = known.status || null;
   }
 
   const key = String(payPeriodId);
   if (!forceRefresh && cachedChecksKey === key && cachedChecks) {
-    return cachedChecks;
+    return {
+      checks: cachedChecks,
+      meta: {
+        ...emptyMeta,
+        periodStatus,
+      },
+    };
   }
 
-  cachedChecks = await fetchCompanyChecksByPayPeriodId(payPeriodId);
-  cachedChecksKey = key;
-  return cachedChecks;
+  try {
+    cachedChecks = await fetchCompanyChecksByPayPeriodId(payPeriodId);
+    cachedChecksKey = key;
+    return {
+      checks: cachedChecks,
+      meta: {
+        ...emptyMeta,
+        periodStatus,
+      },
+    };
+  } catch (error) {
+    // fetchCompanyChecksByPayPeriodId normally swallows errors; keep defensive.
+    logCompanyChecksError(error);
+    const code = error.code || error.paychexErrorCode || 'API-1';
+    return {
+      checks: [],
+      meta: {
+        ...emptyMeta,
+        periodStatus: error.paychexContext?.periodStatus || periodStatus,
+        checksUnavailable: true,
+        checksUnavailableCode: code,
+        checksUnavailableMessage: error.message,
+      },
+    };
+  }
 }
 
 function extractPayPeriodFromCheck(check) {

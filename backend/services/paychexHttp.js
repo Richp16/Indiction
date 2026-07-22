@@ -11,7 +11,7 @@ const {
   isRetryableNetworkError,
   formatPaychexErrorForLog,
 } = require('./paychexErrors');
-const { getToken, clearTokenCache } = require('./paychexAuth');
+const { getToken, clearTokenCache, getTokenCacheInfo } = require('./paychexAuth');
 
 const httpsAgent = new https.Agent({
   keepAlive: true,
@@ -24,8 +24,20 @@ const paychexHttp = axios.create({
   httpsAgent,
 });
 
+/** Postman-aligned Accept for payroll /checks (scoped — not global). */
+const CHECKS_ACCEPT = '*/*';
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isPaychexDebug() {
+  const raw = process.env.PAYCHEX_DEBUG;
+  return raw === '1' || String(raw || '').toLowerCase() === 'true';
+}
+
+function isChecksPath(path) {
+  return /\/checks(?:\?|$)/.test(String(path || ''));
 }
 
 function logGetRequest(path, extra = {}) {
@@ -35,28 +47,91 @@ function logGetRequest(path, extra = {}) {
   );
 }
 
-async function authorizedRequest(method, path, options = {}) {
-  const token = await getToken();
-  return paychexHttp.request({
+function redactAuthHeaders(headers) {
+  const out = { ...(headers || {}) };
+  if (out.Authorization) {
+    const value = String(out.Authorization);
+    out.Authorization = value.startsWith('Bearer ')
+      ? `Bearer ${value.slice(7, 15)}…(${value.length - 7} chars)`
+      : '[redacted]';
+  }
+  return out;
+}
+
+function logOutgoingRequest(method, path, headers) {
+  if (!isPaychexDebug()) return;
+  const tokenInfo = getTokenCacheInfo();
+  console.log('[paychex][DEBUG] outgoing request', {
     method,
-    url: path,
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...options.headers,
+    url: `${getPaychexBaseUrl()}${path}`,
+    headers: redactAuthHeaders(headers),
+    token: {
+      hasToken: tokenInfo.hasToken,
+      expiresAt: tokenInfo.expiresAt
+        ? new Date(tokenInfo.expiresAt).toISOString()
+        : null,
+      expiresInMs: tokenInfo.expiresInMs,
+      expiresInSec:
+        tokenInfo.expiresInMs != null
+          ? Math.round(tokenInfo.expiresInMs / 1000)
+          : null,
     },
   });
 }
 
-async function paychexGetWithRetry(path, logContext = '') {
+function logFailedResponse(path, err) {
+  if (!isPaychexDebug()) return;
+  console.error('[paychex][DEBUG] error response', {
+    path,
+    status: err.response?.status,
+    statusText: err.response?.statusText,
+    responseHeaders: err.response?.headers || null,
+    responseBody: err.response?.data ?? null,
+    mapped: formatPaychexErrorForLog(mapPaychexError(err, `GET ${path}`)),
+  });
+}
+
+/**
+ * Build per-request headers. Checks endpoints get Accept: star/star to match
+ * Paychex-support Postman (versioned Accept can trigger API-1 500).
+ */
+function buildGetHeaders(path, extraHeaders = {}) {
+  const headers = { ...extraHeaders };
+  if (isChecksPath(path)) {
+    headers.Accept = CHECKS_ACCEPT;
+  }
+  return headers;
+}
+
+async function authorizedRequest(method, path, options = {}) {
+  const token = await getToken();
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    ...(options.headers || {}),
+  };
+  logOutgoingRequest(method, path, headers);
+  return paychexHttp.request({
+    method,
+    url: path,
+    ...options,
+    headers,
+  });
+}
+
+async function paychexGetWithRetry(path, logContext = '', requestOptions = {}) {
   let lastError;
+  const headers = buildGetHeaders(path, requestOptions.headers);
 
   for (let attempt = 1; attempt <= PAYCHEX_GET_MAX_RETRIES; attempt += 1) {
     try {
-      const response = await authorizedRequest('get', path);
+      const response = await authorizedRequest('get', path, {
+        ...requestOptions,
+        headers,
+      });
       return response;
     } catch (err) {
       lastError = err;
+      logFailedResponse(path, err);
 
       if (err.response?.status === 401 && attempt < PAYCHEX_GET_MAX_RETRIES) {
         clearTokenCache();
@@ -86,7 +161,9 @@ async function paychexGetWithRetry(path, logContext = '') {
  */
 async function paychexGetOnce(path, logOptions = {}) {
   logGetRequest(path, logOptions);
-  const response = await paychexGetWithRetry(path, `GET ${path}`);
+  const response = await paychexGetWithRetry(path, `GET ${path}`, {
+    headers: logOptions.headers,
+  });
   return response.data.content || [];
 }
 
@@ -94,10 +171,11 @@ async function paychexGetOnce(path, logOptions = {}) {
  * Paginated GET helper for Paychex list endpoints.
  *
  * Pass `{ paginate: false }` to call the path exactly as given (no offset/limit).
- * Required for /checks until Paychex confirms pagination support.
+ * /checks paths always skip pagination and use Accept star/star.
  */
 async function paychexGet(path, logOptions = {}) {
-  if (logOptions.paginate === false) {
+  const forceOnce = logOptions.paginate === false || isChecksPath(path);
+  if (forceOnce) {
     return paychexGetOnce(path, logOptions);
   }
 
@@ -111,7 +189,9 @@ async function paychexGet(path, logOptions = {}) {
     const pagePath = `${path}${separator}offset=${offset}&limit=${limit}`;
     logGetRequest(pagePath, logOptions);
 
-    const response = await paychexGetWithRetry(pagePath, `GET ${pagePath}`);
+    const response = await paychexGetWithRetry(pagePath, `GET ${pagePath}`, {
+      headers: logOptions.headers,
+    });
     const content = response.data.content || [];
     items.push(...content);
 
@@ -134,6 +214,7 @@ async function paychexPost(path, body, logContext = '') {
     });
     return response.data;
   } catch (err) {
+    logFailedResponse(path, err);
     throw mapPaychexError(err, logContext || `POST ${path}`);
   }
 }
@@ -173,4 +254,8 @@ module.exports = {
   paychexGetWithRetry,
   checkPaychexConnectivity,
   getPaychexBaseUrl,
+  isChecksPath,
+  buildGetHeaders,
+  CHECKS_ACCEPT,
+  isPaychexDebug,
 };

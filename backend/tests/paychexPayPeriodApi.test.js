@@ -287,6 +287,68 @@ describe('Paychex API methods with stubbed paychexGet', () => {
     }
   });
 
+  it('worker checks maps draft-period 500 to CHECKS_NOT_READY', async () => {
+    const http = require('../services/paychexHttp');
+    const store = require('../services/paychexPayPeriodStore');
+    const { CHECKS_NOT_READY_MESSAGE } = require('../services/paychexErrors');
+    const originalGet = http.paychexGet;
+    const originalFind = store.findLocalPayPeriod;
+
+    http.paychexGet = async () => {
+      const err = new Error('Paychex server error (500): {"code":"API-1"}');
+      err.paychexErrorType = 'server';
+      err.statusCode = 500;
+      err.paychexErrorCode = 'API-1';
+      throw err;
+    };
+    store.findLocalPayPeriod = async () => ({
+      payPeriodId: SUPPORT_PAY_PERIOD_ID,
+      status: 'DRAFT',
+    });
+
+    try {
+      await assert.rejects(
+        () =>
+          getWorkerChecksByPayPeriod({
+            workerId: SUPPORT_WORKER_ID,
+            payPeriodId: SUPPORT_PAY_PERIOD_ID,
+            companyId: SUPPORT_COMPANY_ID,
+          }),
+        (err) => {
+          assert.equal(err.code, 'CHECKS_NOT_READY');
+          assert.equal(err.statusCode, 409);
+          assert.equal(err.message, CHECKS_NOT_READY_MESSAGE);
+          assert.equal(err.paychexContext.periodStatus, 'DRAFT');
+          return true;
+        }
+      );
+    } finally {
+      http.paychexGet = originalGet;
+      store.findLocalPayPeriod = originalFind;
+    }
+  });
+
+  it('checks paths force Accept star/star and skip pagination flags', () => {
+    const http = require('../services/paychexHttp');
+    assert.equal(http.CHECKS_ACCEPT, '*/*');
+    assert.equal(http.isChecksPath('/workers/x/checks?payperiodid=1'), true);
+    assert.equal(http.isChecksPath('/companies/x/checks?payperiodid=1'), true);
+    assert.equal(http.isChecksPath('/companies/x/payperiods'), false);
+    assert.equal(
+      http.buildGetHeaders('/workers/x/checks?payperiodid=1').Accept,
+      '*/*'
+    );
+    assert.equal(
+      http.buildGetHeaders('/companies/x/checks?payperiodid=1').Accept,
+      '*/*'
+    );
+    // Non-checks paths must not force Accept (other endpoints may need a profile).
+    assert.equal(
+      http.buildGetHeaders('/companies/x/payperiods').Accept,
+      undefined
+    );
+  });
+
   it('company checks rejects non-numeric payPeriodId before HTTP', async () => {
     await assert.rejects(
       () =>

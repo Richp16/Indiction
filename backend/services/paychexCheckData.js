@@ -1,4 +1,3 @@
-const { paychexGet } = require('./paychexHttp');
 const { formatPaychexErrorForLog } = require('./paychexErrors');
 const { roundMoney } = require('./payrollTaxEstimate');
 const {
@@ -6,7 +5,9 @@ const {
   indexChecksByWorker,
   parseCheckForSupplement,
 } = require('./paychexCompanyChecks');
+const { getWorkerChecksByPayPeriod } = require('./paychexPayPeriodApi');
 const { getPayComponentNameMap } = require('./paychexPayComponents');
+const { companyId } = require('../config/paychexApi');
 
 function toNumber(value) {
   const parsed = Number(value);
@@ -141,11 +142,14 @@ function parseCheck(check) {
 
 async function fetchWorkerCheckData(paychexWorkerId, payPeriodId) {
   try {
-    const checks = await paychexGet(
-      `/workers/${paychexWorkerId}/checks?payperiodid=${encodeURIComponent(payPeriodId)}`
-    );
+    // Routes through paychexGet /checks path → Accept: */*, no offset/limit.
+    const checks = await getWorkerChecksByPayPeriod({
+      workerId: paychexWorkerId,
+      payPeriodId,
+      companyId: companyId() || undefined,
+    });
     if (!checks.length) return null;
-    return parseCheck(checks[0]);
+    return parseCheck(checks[0].raw || checks[0]);
   } catch (error) {
     console.error(
       `[paychexCheckData] Failed to fetch check for worker ${paychexWorkerId}, period ${payPeriodId}:`,
@@ -156,10 +160,11 @@ async function fetchWorkerCheckData(paychexWorkerId, payPeriodId) {
 }
 
 async function fetchChecksForWorkers({ payPeriodId, workerIds }) {
-  const [allChecks, componentMap] = await Promise.all([
+  const [checksResult, componentMap] = await Promise.all([
     getCompanyChecksForHistory({ payPeriodId }),
     getPayComponentNameMap(),
   ]);
+  const allChecks = checksResult.checks || [];
   const checksByWorker = indexChecksByWorker(allChecks);
 
   return workerIds.map((workerId) => {

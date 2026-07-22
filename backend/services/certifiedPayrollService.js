@@ -640,10 +640,12 @@ async function buildSupplementRows({
   const debugWorkers = [];
 
   const checksPayPeriodId = resolvedPaychexPayPeriodId || payPeriodId;
-  const [allChecks, componentMap] = await Promise.all([
+  const [checksResult, componentMap] = await Promise.all([
     getCompanyChecksForHistory({ forceRefresh, payPeriodId: checksPayPeriodId }),
     getPayComponentNameMap(),
   ]);
+  const allChecks = checksResult.checks || [];
+  const checksFetchMeta = checksResult.meta || null;
   const {
     checksByWorker,
     workersWithMultipleChecksInSamePayPeriod,
@@ -782,6 +784,7 @@ async function buildSupplementRows({
     workers,
     checksByWorker,
     workersWithMultipleChecksInSamePayPeriod,
+    checksFetchMeta,
   });
 
   const debug = {
@@ -791,6 +794,9 @@ async function buildSupplementRows({
     weekEndingDate,
     paychexPayPeriodId: resolvedPaychexPayPeriodId,
     checksFetched: allChecks.length,
+    checksUnavailable: checksFetchMeta?.checksUnavailable || false,
+    checksUnavailableCode: checksFetchMeta?.checksUnavailableCode || null,
+    periodStatus: checksFetchMeta?.periodStatus || null,
     hoursSource: 'daily_time_entries',
     moneySource: resolvedPaychexPayPeriodId ? 'paychex_company_checks' : 'none',
     workers: debugWorkers,
@@ -834,10 +840,11 @@ async function fetchAndCacheCheckData({
 
   const site = await selectJobSiteWageDetermination(jobSiteId);
   const componentMap = await getPayComponentNameMap();
-  const allChecks = await getCompanyChecksForHistory({
+  const checksResult = await getCompanyChecksForHistory({
     forceRefresh: true,
     payPeriodId: periodWeeks.paychexPeriodId || payPeriodId,
   });
+  const allChecks = checksResult.checks || [];
   const checksByWorker = indexChecksByWorker(allChecks);
 
   const results = [];

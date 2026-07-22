@@ -531,6 +531,15 @@ export default function CertifiedPayrollPage() {
           <>
             {reconciliationWarnings && (
               <div style={{ marginBottom: '1rem' }} data-testid="reconciliation-warnings">
+                {reconciliationWarnings.checksUnavailable && (
+                  <div className="alert alert-warning" style={warningBannerStyle}>
+                    {reconciliationWarnings.checksUnavailable.message ||
+                      'Paychex checks are not available for this pay period.'}
+                    {reconciliationWarnings.checksUnavailable.periodStatus
+                      ? ` (status: ${reconciliationWarnings.checksUnavailable.periodStatus})`
+                      : ''}
+                  </div>
+                )}
                 {(reconciliationWarnings.workersWithHoursButNoPaychexCheck || []).length > 0 && (
                   <div className="alert alert-warning" style={warningBannerStyle}>
                     {reconciliationWarnings.workersWithHoursButNoPaychexCheck.length} worker(s)

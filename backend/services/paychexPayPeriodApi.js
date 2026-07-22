@@ -10,12 +10,25 @@ const {
   formatPaychexErrorForLog,
   extractPaychexErrorCode,
   CHECKS_SERVER_ERROR_MESSAGE,
+  CHECKS_NOT_READY_MESSAGE,
+  isChecksReadyStatus,
 } = require('./paychexErrors');
 const {
   assertPaychexCompanyId,
   assertPaychexPayPeriodId,
   assertPaychexWorkerId,
 } = require('./paychexIds');
+
+async function lookupLocalPeriod(companyId, payPeriodId) {
+  if (!companyId || !payPeriodId) return null;
+  try {
+    // Lazy require avoids circular dependency with paychexPayPeriodStore.
+    const { findLocalPayPeriod } = require('./paychexPayPeriodStore');
+    return await findLocalPayPeriod(companyId, payPeriodId);
+  } catch {
+    return null;
+  }
+}
 
 function parseDateOnly(value) {
   if (!value) return null;
@@ -181,23 +194,50 @@ function enrichPaychexError(error, context) {
 
 /**
  * Log full Paychex failure details, then replace the client-facing message for
- * 5xx company-checks failures so Certified Payroll can show a stable banner.
+ * checks failures. Draft/pending periods get CHECKS_NOT_READY instead of a raw 500.
  */
-function handleCompanyChecksError(error, { companyId, payPeriodId, endpoint }) {
-  const enriched = enrichPaychexError(error, {
-    companyId,
-    payPeriodId,
-    endpoint,
-  });
+async function handleChecksFetchError(error, context) {
+  const enriched = enrichPaychexError(error, context);
+  const { companyId, payPeriodId, workerId, endpoint } = context;
 
-  console.error('[Paychex] getCompanyChecksByPayPeriod failed', {
-    companyId,
-    payPeriodId,
+  let localPeriod = null;
+  if (companyId && payPeriodId) {
+    localPeriod = await lookupLocalPeriod(companyId, payPeriodId);
+  }
+
+  const periodStatus = localPeriod?.status || null;
+  const checksReady = isChecksReadyStatus(periodStatus);
+
+  console.error('[Paychex] checks fetch failed', {
+    companyId: companyId || null,
+    workerId: workerId || null,
+    payPeriodId: payPeriodId || null,
     endpoint,
+    periodStatus,
+    checksReady,
     statusCode: enriched.statusCode,
     paychexErrorCode: enriched.paychexErrorCode,
     error: formatPaychexErrorForLog(enriched),
   });
+
+  // Draft / non-finalized payroll: expected that /checks may 500 or return empty profiles.
+  if (
+    (enriched.statusCode >= 500 || enriched.paychexErrorType === 'server') &&
+    periodStatus &&
+    !checksReady
+  ) {
+    const clientError = new Error(CHECKS_NOT_READY_MESSAGE);
+    clientError.statusCode = 409;
+    clientError.code = 'CHECKS_NOT_READY';
+    clientError.paychexErrorCode = enriched.paychexErrorCode || 'API-1';
+    clientError.paychexErrorType = 'checks_not_ready';
+    clientError.paychexContext = {
+      ...enriched.paychexContext,
+      periodStatus,
+    };
+    clientError.cause = enriched;
+    return clientError;
+  }
 
   if (enriched.statusCode >= 500 || enriched.paychexErrorType === 'server') {
     const clientError = new Error(CHECKS_SERVER_ERROR_MESSAGE);
@@ -205,12 +245,20 @@ function handleCompanyChecksError(error, { companyId, payPeriodId, endpoint }) {
     clientError.code = enriched.paychexErrorCode || 'API-1';
     clientError.paychexErrorCode = enriched.paychexErrorCode || 'API-1';
     clientError.paychexErrorType = 'server';
-    clientError.paychexContext = enriched.paychexContext;
+    clientError.paychexContext = {
+      ...enriched.paychexContext,
+      periodStatus,
+    };
     clientError.cause = enriched;
     return clientError;
   }
 
   return enriched;
+}
+
+/** @deprecated Use handleChecksFetchError */
+async function handleCompanyChecksError(error, context) {
+  return handleChecksFetchError(error, context);
 }
 
 /**
@@ -303,7 +351,7 @@ async function getCompanyChecksByPayPeriod({ companyId, payPeriodId }) {
 
     return checks;
   } catch (error) {
-    throw handleCompanyChecksError(error, {
+    throw await handleChecksFetchError(error, {
       companyId: cid,
       payPeriodId: pid,
       endpoint: path.split('?')[0],
@@ -317,9 +365,9 @@ async function getCompanyChecksByPayPeriod({ companyId, payPeriodId }) {
  * payPeriodId must come from GET /companies/{companyId}/payperiods — do not invent it.
  * workerId goes in the path; payPeriodId goes only in the query.
  *
- * @param {{ workerId: string, payPeriodId: string }} params
+ * @param {{ workerId: string, payPeriodId: string, companyId?: string }} params
  */
-async function getWorkerChecksByPayPeriod({ workerId, payPeriodId }) {
+async function getWorkerChecksByPayPeriod({ workerId, payPeriodId, companyId }) {
   const wid = assertPaychexWorkerId(workerId);
   // payPeriodId must come from GET /companies/{companyId}/payperiods — do not invent it.
   const pid = assertPaychexPayPeriodId(payPeriodId);
@@ -331,7 +379,7 @@ async function getWorkerChecksByPayPeriod({ workerId, payPeriodId }) {
   console.log('[Paychex] Fetching worker checks', { workerId: wid, payPeriodId: pid });
 
   try {
-    // Do not send offset/limit — same constraint as company /checks.
+    // Accept: */* + no pagination applied inside paychexGet for /checks paths.
     const content = await paychexHttp.paychexGet(path, {
       workerId: wid,
       payPeriodId: pid,
@@ -349,16 +397,11 @@ async function getWorkerChecksByPayPeriod({ workerId, payPeriodId }) {
 
     return checks;
   } catch (error) {
-    console.error('[Paychex] getWorkerChecksByPayPeriod failed', {
+    throw await handleChecksFetchError(error, {
+      companyId: companyId || null,
       workerId: wid,
       payPeriodId: pid,
       endpoint: path.split('?')[0],
-      error: formatPaychexErrorForLog(error),
-    });
-    throw enrichPaychexError(error, {
-      workerId: wid,
-      payPeriodId: pid,
-      endpoint: 'worker-checks',
     });
   }
 }

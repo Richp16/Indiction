@@ -22,6 +22,14 @@ function clearTokenCache() {
   tokenExpiry = 0;
 }
 
+function getTokenCacheInfo() {
+  return {
+    hasToken: Boolean(cachedToken),
+    expiresAt: tokenExpiry || null,
+    expiresInMs: tokenExpiry ? tokenExpiry - Date.now() : null,
+  };
+}
+
 async function getToken() {
   const fiveMinutesMs = 5 * 60 * 1000;
   if (cachedToken && tokenExpiry - Date.now() > fiveMinutesMs) {
@@ -47,4 +55,4 @@ async function getToken() {
   }
 }
 
-module.exports = { getToken, clearTokenCache };
+module.exports = { getToken, clearTokenCache, getTokenCacheInfo };

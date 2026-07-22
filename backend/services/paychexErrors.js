@@ -120,11 +120,25 @@ function extractPaychexErrorCode(err) {
 const CHECKS_SERVER_ERROR_MESSAGE =
   'Paychex returned a server error for this pay period. Try again later or contact Paychex API Developer Center Support.';
 
+const CHECKS_NOT_READY_MESSAGE =
+  'Checks not yet available — payroll period is still in draft/pending status (or Paychex has not finalized checks for this period).';
+
+/** Paychex statuses where /checks is expected to succeed. */
+const CHECKS_READY_STATUSES = new Set(['COMPLETED', 'PROCESSED', 'CLOSED', 'FINALIZED']);
+
+function isChecksReadyStatus(status) {
+  if (!status) return false;
+  return CHECKS_READY_STATUSES.has(String(status).trim().toUpperCase());
+}
+
 module.exports = {
   mapPaychexError,
   isRetryableNetworkError,
   formatPaychexErrorForLog,
   extractPaychexErrorCode,
   CHECKS_SERVER_ERROR_MESSAGE,
+  CHECKS_NOT_READY_MESSAGE,
+  isChecksReadyStatus,
+  CHECKS_READY_STATUSES,
   RETRYABLE_NETWORK_CODES,
 };
