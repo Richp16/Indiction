@@ -83,6 +83,15 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
   const issueCount = rowIssues.filter((issues) => issues.length > 0).length;
   const hasValidationErrors = issueCount > 0;
 
+  const totalHours = useMemo(
+    () =>
+      exportRows.reduce((sum, row) => {
+        const hours = parseNumericField(row.Hours);
+        return sum + (hours > 0 ? hours : 0);
+      }, 0),
+    [exportRows]
+  );
+
   function handleFieldChange(index, field, value) {
     setExportRows((rows) =>
       rows.map((row, i) => {
@@ -238,7 +247,14 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
       )}
 
       {!loading && exportRows.length > 0 && (
-        <div style={{ overflowX: 'auto', marginTop: '1rem' }}>
+        <p style={{ marginTop: '1rem', color: '#444' }}>
+          {exportRows.length} row{exportRows.length === 1 ? '' : 's'} · Total hours:{' '}
+          <strong>{totalHours.toFixed(2)}</strong>
+        </p>
+      )}
+
+      {!loading && exportRows.length > 0 && (
+        <div style={{ overflowX: 'auto', marginTop: '0.5rem' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
             <thead>
               <tr>

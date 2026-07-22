@@ -45,6 +45,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/labor-classifications', laborClassificationsRoutes);
 app.use('/api/company-settings', companySettingsRoutes);
 app.use('/api/certified-payroll', certifiedPayrollRoutes);
+app.use('/api/paychex', require('./routes/paychex'));
 // Mount last: settings router is on /api and applies system_admin guard to all unmatched /api paths
 app.use('/api', settingsRoutes);
 

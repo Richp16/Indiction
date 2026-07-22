@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiGet } from '../api/client';
+import PayPeriodSelector from '../components/PayPeriodSelector';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -35,42 +36,90 @@ function formatHours(entry) {
 
 export default function SummaryPage() {
   const { token } = useAuth();
-  const [period, setPeriod] = useState(null);
+  const [periods, setPeriods] = useState([]);
+  const [selectedPayPeriodId, setSelectedPayPeriodId] = useState('');
   const [entries, setEntries] = useState([]);
   const [totalEarnings, setTotalEarnings] = useState(0);
   const [employerLiability, setEmployerLiability] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [periodsLoading, setPeriodsLoading] = useState(true);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const selectedPeriod = useMemo(
+    () => periods.find((period) => period.id === selectedPayPeriodId) || null,
+    [periods, selectedPayPeriodId]
+  );
+
   useEffect(() => {
-    async function load() {
-      setLoading(true);
+    async function loadPeriods() {
+      setPeriodsLoading(true);
       setError('');
       try {
-        const periodData = await apiGet('/api/pay-periods/current', token);
-        setPeriod(periodData);
+        const data = await apiGet('/api/payroll/pay-periods', token);
+        const nextPeriods = data.periods || [];
+        setPeriods(nextPeriods);
 
-        const [entryData, summaryData] = await Promise.all([
-          apiGet(`/api/entries?payPeriodId=${periodData.id}`, token),
-          apiGet(`/api/summary?payPeriodId=${periodData.id}`, token),
-        ]);
-
-        setEntries(entryData);
-        setTotalEarnings(summaryData.totalEarnings ?? 0);
-        setEmployerLiability(summaryData.employerLiability ?? 0);
+        const current =
+          nextPeriods.find((period) => period.isCurrent) || nextPeriods[0] || null;
+        setSelectedPayPeriodId((existing) => {
+          if (existing && nextPeriods.some((period) => period.id === existing)) {
+            return existing;
+          }
+          return current?.id || '';
+        });
       } catch (err) {
+        setError(err.message || 'Failed to load pay periods');
+        setPeriods([]);
+        setSelectedPayPeriodId('');
+      } finally {
+        setPeriodsLoading(false);
+      }
+    }
+    loadPeriods();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || !selectedPeriod) {
+      setEntries([]);
+      setTotalEarnings(0);
+      setEmployerLiability(0);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function loadAnalysis() {
+      setAnalysisLoading(true);
+      setError('');
+      try {
+        const params = new URLSearchParams({
+          periodStart: selectedPeriod.startDate || selectedPeriod.start_date,
+          periodEnd: selectedPeriod.endDate || selectedPeriod.end_date,
+        });
+        const analysis = await apiGet(`/api/summary/analysis?${params.toString()}`, token);
+        if (cancelled) return;
+
+        setEntries(analysis.entries || []);
+        setTotalEarnings(analysis.totalEarnings ?? 0);
+        setEmployerLiability(analysis.employerLiability ?? 0);
+      } catch (err) {
+        if (cancelled) return;
         setError(err.message || 'Failed to load summary');
         setEntries([]);
         setTotalEarnings(0);
         setEmployerLiability(0);
       } finally {
-        setLoading(false);
+        if (!cancelled) setAnalysisLoading(false);
       }
     }
-    load();
-  }, [token]);
 
-  if (loading) {
+    loadAnalysis();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, selectedPeriod]);
+
+  if (periodsLoading) {
     return <p>Loading…</p>;
   }
 
@@ -78,13 +127,14 @@ export default function SummaryPage() {
     <div>
       <h1>Summary</h1>
 
-      {period && (
-        <p>
-          Pay period: {period.start_date} – {period.end_date}
-        </p>
-      )}
+      <PayPeriodSelector
+        periods={periods}
+        selectedPayPeriodId={selectedPayPeriodId}
+        onChange={setSelectedPayPeriodId}
+      />
 
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
+      {analysisLoading && <p>Loading analysis…</p>}
 
       <section style={statsSectionStyle}>
         <div style={statCardStyle}>
@@ -103,11 +153,11 @@ export default function SummaryPage() {
         </div>
       </section>
 
-      {entries.length === 0 && !error && (
+      {!analysisLoading && entries.length === 0 && !error && (
         <p>No time entries for this pay period.</p>
       )}
 
-      {entries.length > 0 && (
+      {!analysisLoading && entries.length > 0 && (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>

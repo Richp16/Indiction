@@ -205,8 +205,20 @@ async function syncJobSites() {
   };
 }
 
+/**
+ * PURPOSE: Operational / current pay-period sync (status=OPEN only).
+ *
+ * Writes into local `pay_periods` for Daily Entry, Payroll, Submit, Summary.
+ * These are the active Flex windows workers enter hours against — not a
+ * historical archive for paycheck retrieval.
+ *
+ * Contrast: syncHistoricalPaychexPayPeriods() uses status=COMPLETED (+ date
+ * range) and writes `paychex_pay_periods` for /checks validation.
+ */
 async function syncPayPeriods() {
   try {
+    // OPEN only — current/entry windows for local payroll workflows.
+    // Do not add COMPLETED here; that belongs to syncHistoricalPaychexPayPeriods.
     const periods = await paychexGet(
       `/companies/${companyId()}/payperiods?status=OPEN`
     );
@@ -273,12 +285,52 @@ async function syncPayPeriods() {
   }
 }
 
+/**
+ * PURPOSE: Historical pay-period discovery (status=COMPLETED, last ~12 months).
+ *
+ * Writes into `paychex_pay_periods` — the only local source of truth for which
+ * Paychex payPeriodIds may be used on GET .../checks?payperiodid=.
+ *
+ * Contrast: syncPayPeriods() uses status=OPEN and writes operational `pay_periods`.
+ * Both run in runFullSync() because they feed different product surfaces.
+ */
+async function syncHistoricalPaychexPayPeriods() {
+  try {
+    const { syncCompanyPayPeriods } = require('./paychexPayPeriodStore');
+    const cid = companyId();
+    if (!cid) {
+      return {
+        syncType: 'paychex_pay_periods',
+        status: 'FAILED',
+        message: 'PAYCHEX_COMPANY_ID is not configured',
+      };
+    }
+
+    // Defaults: COMPLETED + buildPaychexDateRange() full-day UTC bounds (no ms).
+    const summary = await syncCompanyPayPeriods({ companyId: cid });
+    const message =
+      `Fetched ${summary.fetchedCount} (inserted ${summary.insertedCount}, ` +
+      `updated ${summary.updatedCount})`;
+    await logSync('paychex_pay_periods', 'SUCCESS', message);
+    return { syncType: 'paychex_pay_periods', status: 'SUCCESS', message, summary };
+  } catch (error) {
+    const detail = formatSyncError(error);
+    const message = detail.message || 'Unknown error';
+    console.error('Paychex historical pay period sync error:', detail);
+    await logSync('paychex_pay_periods', 'FAILED', message);
+    return { syncType: 'paychex_pay_periods', status: 'FAILED', message };
+  }
+}
+
 async function runFullSync() {
   const results = [];
   results.push(await syncWorkers());
   results.push(await syncWorkerPayRates());
   results.push(await syncPayComponents());
+  // 1) OPEN → pay_periods (Daily Entry / Payroll)
   results.push(await syncPayPeriods());
+  // 2) COMPLETED → paychex_pay_periods (checks / Settings picker)
+  results.push(await syncHistoricalPaychexPayPeriods());
   return results;
 }
 
@@ -289,5 +341,6 @@ module.exports = {
   syncPayComponents,
   syncJobSites,
   syncPayPeriods,
+  syncHistoricalPaychexPayPeriods,
   fetchWorkerHourlyRate,
 };

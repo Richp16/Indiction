@@ -5,7 +5,8 @@ const SYNC_TYPE_LABELS = {
   workers: 'Workers',
   pay_components: 'Pay Components',
   job_sites: 'Job Sites',
-  pay_periods: 'Pay Periods',
+  pay_periods: 'Pay Periods (OPEN)',
+  paychex_pay_periods: 'Paychex Pay Periods',
 };
 
 function formatSyncTime(timestamp) {
@@ -59,7 +60,13 @@ export default function SyncPanel() {
     }
   }
 
-  const types = ['workers', 'pay_components', 'job_sites', 'pay_periods'];
+  const types = [
+    'workers',
+    'pay_components',
+    'job_sites',
+    'pay_periods',
+    'paychex_pay_periods',
+  ];
 
   return (
     <div>

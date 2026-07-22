@@ -51,7 +51,7 @@ describe('WH-347 biweekly supplement columns', () => {
     assert.ok(fullPeriodGrossAllWork >= calculateGrossThisJob(week2Entries, rate));
   });
 
-  it('estimates deductions on full biweekly gross, not single-week gross', () => {
+  it('estimates FICA on full biweekly gross; leaves withholding and net blank for manual entry', () => {
     const biweeklyGross = 1560;
     const singleWeekGross = 800;
 
@@ -66,8 +66,10 @@ describe('WH-347 biweekly supplement columns', () => {
     assert.equal(Number(biweeklyEstimate.gross_earned_all_work), biweeklyGross);
     assert.equal(Number(biweeklyEstimate.deduction_fica), estimateDeductions(biweeklyGross).fica);
     assert.ok(Number(biweeklyEstimate.deduction_fica) > Number(singleWeekEstimate.fica));
-    assert.ok(Number(biweeklyEstimate.deduction_withholding) > Number(singleWeekEstimate.federalWithholding));
-    assert.equal(biweeklyEstimate.source, 'estimated');
+    assert.equal(biweeklyEstimate.deduction_withholding, null);
+    assert.equal(biweeklyEstimate.net_pay, null);
+    assert.equal(biweeklyEstimate.needs_manual_withholding, true);
+    assert.equal(biweeklyEstimate.source, 'hours');
   });
 
   it('merges biweekly supplement fields from either weekly row', () => {

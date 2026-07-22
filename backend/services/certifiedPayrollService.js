@@ -1,14 +1,41 @@
 const { query } = require('../db');
-const { fetchWorkerCheckData } = require('./paychexCheckData');
 const { fetchPaychexPayPeriods } = require('./paychexPayPeriods');
+const {
+  getCompanyChecksForHistory,
+  indexChecksByWorker,
+  parseCheckForSupplement,
+  parsePayPeriodId,
+  clearCompanyChecksCache,
+} = require('./paychexCompanyChecks');
+const {
+  indexChecksByWorkerDetailed,
+  mapPaychexCheckToSupplementFields,
+  buildReconciliationWarnings,
+} = require('./certifiedPayrollComposer');
+const { getPayComponentNameMap } = require('./paychexPayComponents');
 const { estimateDeductions, roundMoney } = require('./payrollTaxEstimate');
 const {
   selectJobSiteById,
   selectJobSiteWageDetermination,
 } = require('../db/jobSiteQuery');
+const { companyId: envCompanyId } = require('../config/paychexApi');
+const { isPaychexPayPeriodId } = require('./paychexIds');
 
 function getWeekWindow(weekEndingDate) {
-  const end = new Date(`${weekEndingDate}T12:00:00.000Z`);
+  const day = String(weekEndingDate || '').split('T')[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    const error = new Error('weekEndingDate must be a valid YYYY-MM-DD date');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const end = new Date(`${day}T12:00:00.000Z`);
+  if (Number.isNaN(end.getTime())) {
+    const error = new Error('weekEndingDate must be a valid YYYY-MM-DD date');
+    error.statusCode = 400;
+    throw error;
+  }
+
   const start = new Date(end);
   start.setUTCDate(end.getUTCDate() - 6);
   return {
@@ -186,8 +213,10 @@ function formatMoneyField(value) {
   return roundMoney(value);
 }
 
-function buildSupplementFromPaychex({ checkData, site, worker }) {
-  const other = mergeOtherDeductions(checkData.otherDeductions);
+function buildSupplementFromPaychex({ checkData, site, worker, mapped = null }) {
+  const other = mapped
+    ? { amount: mapped.otherAmount, label: mapped.otherLabel }
+    : mergeOtherDeductions(checkData.otherDeductions);
   return {
     worker_id: worker.workerId,
     worker_name: worker.workerName,
@@ -195,14 +224,17 @@ function buildSupplementFromPaychex({ checkData, site, worker }) {
     wage_determination_no: site?.wage_determination_no || '',
     fringe_benefit_credit: 0,
     fringe_paid_in_lieu: 0,
-    gross_earned_all_work: checkData.grossPay,
-    deduction_withholding: checkData.federalWithholding,
-    deduction_fica: checkData.fica,
+    gross_earned_all_work: mapped?.grossAllWork ?? checkData.grossPay,
+    deduction_withholding: mapped?.withholding ?? checkData.federalWithholding,
+    deduction_fica: mapped?.fica ?? checkData.fica,
     deduction_other: other.amount,
     deduction_other_label: other.label,
-    net_pay: checkData.netPay,
+    net_pay: mapped?.netPay ?? checkData.netPay,
     is_estimated: false,
     source: 'paychex',
+    paycheck_id: mapped?.paycheckId || null,
+    paychex_check_worker_id: mapped?.workerId || null,
+    total_deductions: mapped?.totalDeductions ?? null,
   };
 }
 
@@ -217,13 +249,15 @@ function buildSupplementEstimate({ grossAllWork, site, worker }) {
     fringe_benefit_credit: 0,
     fringe_paid_in_lieu: 0,
     gross_earned_all_work: estimate.grossPay,
-    deduction_withholding: estimate.federalWithholding,
+    // Federal withholding / net require Paychex checks or manual entry — leave blank.
+    deduction_withholding: null,
     deduction_fica: estimate.fica,
     deduction_other: other.amount,
     deduction_other_label: other.label,
-    net_pay: estimate.netPay,
-    is_estimated: true,
-    source: 'estimated',
+    net_pay: null,
+    is_estimated: false,
+    needs_manual_withholding: true,
+    source: 'hours',
   };
 }
 
@@ -298,6 +332,11 @@ async function upsertBiweeklySupplementRows({
 }
 
 function formatSupplementResponse(row) {
+  const withholdingBlank =
+    row.deduction_withholding == null || row.deduction_withholding === '';
+  const needsManualWithholding =
+    Boolean(row.needs_manual_withholding) || withholdingBlank;
+
   return {
     worker_id: row.worker_id,
     worker_name: row.worker_name,
@@ -312,13 +351,25 @@ function formatSupplementResponse(row) {
     gross_earned_all_work:
       row.gross_earned_all_work != null ? roundMoney(row.gross_earned_all_work).toFixed(2) : '',
     deduction_withholding:
-      row.deduction_withholding != null ? roundMoney(row.deduction_withholding).toFixed(2) : '',
+      row.deduction_withholding != null && row.deduction_withholding !== ''
+        ? roundMoney(row.deduction_withholding).toFixed(2)
+        : '',
     deduction_fica: row.deduction_fica != null ? roundMoney(row.deduction_fica).toFixed(2) : '',
     deduction_other: row.deduction_other != null ? roundMoney(row.deduction_other).toFixed(2) : '',
     deduction_other_label: row.deduction_other_label ?? '',
-    net_pay: row.net_pay != null ? roundMoney(row.net_pay).toFixed(2) : '',
-    isEstimated: row.source === 'estimated' || Boolean(row.is_estimated),
+    net_pay:
+      row.net_pay != null && row.net_pay !== '' ? roundMoney(row.net_pay).toFixed(2) : '',
+    isEstimated: false,
+    needsManualWithholding,
     source: row.source || (row.is_estimated ? 'estimated' : 'saved'),
+    paycheckId: row.paycheck_id || row.paycheckId || null,
+    paychexCheckWorkerId: row.paychex_check_worker_id || null,
+    totalDeductions:
+      row.total_deductions != null
+        ? roundMoney(row.total_deductions).toFixed(2)
+        : row.totalDeductions != null
+          ? roundMoney(row.totalDeductions).toFixed(2)
+          : null,
   };
 }
 
@@ -344,63 +395,78 @@ function mapPayPeriodRowToOption(period) {
   };
 }
 
-async function getClosedPayPeriodsFromDb() {
-  const today = new Date().toISOString().slice(0, 10);
-
-  const result = await query(
-    `SELECT
-       paychex_period_id,
-       start_date::text AS start_date,
-       end_date::text AS end_date,
-       week1_start::text AS week1_start,
-       week1_end::text AS week1_end,
-       week2_start::text AS week2_start,
-       week2_end::text AS week2_end
-     FROM pay_periods
-     WHERE end_date::text < $1
-     ORDER BY end_date DESC
-     LIMIT 10`,
-    [today]
-  );
-
-  return result.rows.map(mapPayPeriodRowToOption);
-}
-
 async function getClosedPayPeriods() {
   try {
-    const paychexPeriods = await fetchPaychexPayPeriods();
-    if (paychexPeriods.length > 0) {
-      return paychexPeriods.map((period) => {
-        const startDate = String(period.startDate).split('T')[0];
-        const endDate = String(period.endDate).split('T')[0];
-        return mapPayPeriodRowToOption({
-          payPeriodId: period.payPeriodId,
-          startDate,
-          endDate,
-        });
-      });
+    const periods = await fetchPaychexPayPeriods();
+    if (periods.length > 0) {
+      return periods;
     }
-    console.warn('[PayPeriods] Paychex returned no closed periods; falling back to local DB');
+    console.warn('[PayPeriods] No pay periods available from shared payroll list');
   } catch (error) {
-    console.error('[PayPeriods] Paychex fetch failed; falling back to local DB:', error.message);
+    console.error('[PayPeriods] Pay period fetch failed:', error.message);
   }
 
-  return getClosedPayPeriodsFromDb();
+  return [];
 }
 
 async function resolvePayPeriodWeekEnds(payPeriodId) {
+  const parsed = parsePayPeriodId(payPeriodId);
+  if (parsed) {
+    return {
+      startDate: parsed.startDate,
+      endDate: parsed.endDate,
+      week1End: parsed.week1End,
+      week2End: parsed.week2End,
+      weekEndingDates: [...new Set([parsed.week1End, parsed.week2End])],
+      approximate: Boolean(parsed.approximate),
+      paychexPeriodId: null,
+    };
+  }
+
   const result = await query(
     `SELECT
        start_date::text AS start_date,
        end_date::text AS end_date,
        week1_end::text AS week1_end,
-       week2_end::text AS week2_end
+       week2_end::text AS week2_end,
+       paychex_period_id
      FROM pay_periods
-     WHERE paychex_period_id = $1`,
+     WHERE id::text = $1
+        OR paychex_period_id = $1`,
     [payPeriodId]
   );
 
-  if (!result.rows.length) return null;
+  if (!result.rows.length) {
+    // Fall back to synced Paychex catalog (COMPLETED historical periods).
+    const catalog = await query(
+      `SELECT
+         pay_period_id,
+         start_date::text AS start_date,
+         end_date::text AS end_date
+       FROM paychex_pay_periods
+       WHERE pay_period_id = $1
+       LIMIT 1`,
+      [payPeriodId]
+    );
+
+    if (!catalog.rows.length) return null;
+
+    const catalogPeriod = catalog.rows[0];
+    const startDate = catalogPeriod.start_date;
+    const endDate = catalogPeriod.end_date;
+    const week1End = addUtcDays(startDate, 6);
+    const week2End = endDate;
+
+    return {
+      startDate,
+      endDate,
+      week1End,
+      week2End,
+      weekEndingDates: [...new Set([week1End, week2End])],
+      approximate: false,
+      paychexPeriodId: String(catalogPeriod.pay_period_id),
+    };
+  }
 
   const period = result.rows[0];
   const startDate = period.start_date;
@@ -408,12 +474,30 @@ async function resolvePayPeriodWeekEnds(payPeriodId) {
   const week1End = period.week1_end || addUtcDays(startDate, 6);
   const week2End = period.week2_end || endDate;
 
+  let paychexPeriodId = period.paychex_period_id || null;
+  try {
+    const { findPaychexPayPeriodForDates } = require('./paychexPayPeriodReconcile');
+    const { companyId } = require('../config/paychexApi');
+    const catalogMatch = await findPaychexPayPeriodForDates({
+      companyId: companyId(),
+      startDate,
+      endDate,
+    });
+    if (catalogMatch?.pay_period_id) {
+      paychexPeriodId = String(catalogMatch.pay_period_id);
+    }
+  } catch (error) {
+    console.warn('[PayPeriods] Catalog lookup failed:', error.message);
+  }
+
   return {
     startDate,
     endDate,
     week1End,
     week2End,
     weekEndingDates: [...new Set([week1End, week2End])],
+    approximate: false,
+    paychexPeriodId,
   };
 }
 
@@ -430,11 +514,14 @@ async function resolvePayPeriodContext(payPeriodId, { week1End, week2End } = {})
     week1End: week1,
     week2End: week2,
     weekEndingDates: [...new Set([week1, week2])],
+    approximate: Boolean(resolved.approximate),
+    paychexPeriodId: resolved.paychexPeriodId || null,
   };
 }
 
 async function clearSupplementCache({ jobSiteId, weekEndingDates }) {
   if (!weekEndingDates.length) return 0;
+  clearCompanyChecksCache();
   const result = await query(
     `DELETE FROM wh347_supplements
      WHERE job_site_id = $1
@@ -444,15 +531,52 @@ async function clearSupplementCache({ jobSiteId, weekEndingDates }) {
   return result.rowCount;
 }
 
-async function buildSupplementRows({
+/**
+ * Compose Certified Payroll supplement rows:
+ * hours stay on daily_time_entries; money fields prefer Paychex company checks.
+ */
+async function getCertifiedPayrollData({
+  companyId = envCompanyId(),
   jobSiteId,
-  weekEndingDate,
+  localPayPeriodId,
   payPeriodId,
+  weekEndingDate,
+  selectedWeek,
+  paychexPayPeriodId = null,
   payPeriodStart,
   payPeriodEnd,
   week1End,
   week2End,
   forceRefresh = false,
+} = {}) {
+  const localId = localPayPeriodId || payPeriodId;
+  return buildSupplementRows({
+    jobSiteId,
+    weekEndingDate,
+    payPeriodId: localId,
+    paychexPayPeriodId,
+    payPeriodStart,
+    payPeriodEnd,
+    week1End,
+    week2End,
+    forceRefresh,
+    companyId,
+    selectedWeek,
+  });
+}
+
+async function buildSupplementRows({
+  jobSiteId,
+  weekEndingDate,
+  payPeriodId,
+  paychexPayPeriodId = null,
+  payPeriodStart,
+  payPeriodEnd,
+  week1End,
+  week2End,
+  forceRefresh = false,
+  companyId = envCompanyId(),
+  selectedWeek = null,
 }) {
   let periodWeeks = await resolvePayPeriodContext(payPeriodId, { week1End, week2End });
 
@@ -465,6 +589,8 @@ async function buildSupplementRows({
       week1End: week1,
       week2End: week2,
       weekEndingDates: [...new Set([week1, week2])],
+      approximate: false,
+      paychexPeriodId: null,
     };
   }
 
@@ -474,8 +600,13 @@ async function buildSupplementRows({
     throw error;
   }
 
+  const resolvedPaychexPayPeriodId = isPaychexPayPeriodId(paychexPayPeriodId)
+    ? String(paychexPayPeriodId).trim()
+    : periodWeeks.paychexPeriodId || null;
+
   const { weekStart, weekEnd } = getWeekWindow(weekEndingDate);
 
+  // Hours always from internal daily_time_entries (selected week + full period for estimates).
   const [hoursRows, payPeriodHoursRows, site, existingResult] = await Promise.all([
     loadHoursRows(jobSiteId, weekEndingDate),
     loadHoursRowsForDateRange(
@@ -505,53 +636,114 @@ async function buildSupplementRows({
   const existingByWorker = new Map(existingResult.rows.map((row) => [row.worker_id, row]));
   const rows = [];
   let hasEstimated = false;
+  let needsManualWithholding = false;
+  const debugWorkers = [];
+
+  const checksPayPeriodId = resolvedPaychexPayPeriodId || payPeriodId;
+  const [allChecks, componentMap] = await Promise.all([
+    getCompanyChecksForHistory({ forceRefresh, payPeriodId: checksPayPeriodId }),
+    getPayComponentNameMap(),
+  ]);
+  const {
+    checksByWorker,
+    workersWithMultipleChecksInSamePayPeriod,
+  } = indexChecksByWorkerDetailed(allChecks);
 
   for (const worker of workers) {
     const existing = existingByWorker.get(worker.workerId);
+    let mapped = null;
 
-    let checkData = null;
-    if (worker.paychexWorkerId && payPeriodId) {
-      checkData = await fetchWorkerCheckData(worker.paychexWorkerId, payPeriodId);
+    if (worker.paychexWorkerId) {
+      const rawCheck = checksByWorker[String(worker.paychexWorkerId)] || null;
+      if (rawCheck) {
+        mapped = mapPaychexCheckToSupplementFields(rawCheck, componentMap);
+      }
     }
 
-    if (existing && !forceRefresh && checkData) {
+    // Money: prefer Paychex check when present. Hours stay on daily_time_entries only.
+    if (mapped) {
+      const supplementRow = buildSupplementFromPaychex({
+        checkData: mapped.parsed,
+        site,
+        worker,
+        mapped,
+      });
+
+      const saved = await upsertBiweeklySupplementRows({
+        workerId: worker.workerId,
+        jobSiteId,
+        weekEndingDates: periodWeeks.weekEndingDates,
+        selectedWeekEndingDate: weekEndingDate,
+        row: supplementRow,
+      });
+
       const formatted = formatSupplementResponse({
-        ...existing,
-        worker_name: existing.worker_name || worker.workerName,
-        source: 'saved',
+        ...saved,
+        worker_name: worker.workerName,
+        classification: worker.laborClassification,
+        source: 'paychex',
+        paycheck_id: supplementRow.paycheck_id,
+        paychex_check_worker_id: supplementRow.paychex_check_worker_id,
+        total_deductions: supplementRow.total_deductions,
       });
       rows.push(formatted);
+      debugWorkers.push({
+        workerId: worker.workerId,
+        workerName: worker.workerName,
+        paychexWorkerId: worker.paychexWorkerId || null,
+        paycheckId: mapped.paycheckId,
+        source: 'paychex',
+        gross: mapped.grossAllWork,
+        withholding: mapped.withholding,
+        fica: mapped.fica,
+        netPay: mapped.netPay,
+      });
       continue;
     }
 
-    let supplementRow;
-    if (checkData) {
-      supplementRow = buildSupplementFromPaychex({ checkData, site, worker });
-    } else {
-      const grossThisJob = calculateGrossThisJob(worker.entries, worker.rate);
-      const grossAllWork = calculateBiweeklyGrossThisJob(
-        payPeriodHoursRows,
-        worker.workerId,
-        worker.rate
-      );
-      const estimate = estimateDeductions(grossAllWork);
-
-      logSupplementEstimateDebug({
-        worker,
-        weekStart,
-        weekEnd,
-        payPeriodStart: periodWeeks.payPeriodStart,
-        payPeriodEnd: periodWeeks.payPeriodEnd,
-        grossThisJob,
-        grossAllWork,
-        fica: estimate.fica,
-        federalWithholding: estimate.federalWithholding,
-        netPay: estimate.netPay,
+    if (existing && !forceRefresh) {
+      const formatted = formatSupplementResponse({
+        ...existing,
+        worker_name: existing.worker_name || worker.workerName,
+        classification: worker.laborClassification,
+        source: 'saved',
       });
-
-      supplementRow = buildSupplementEstimate({ grossAllWork, site, worker });
-      hasEstimated = true;
+      if (formatted.needsManualWithholding) needsManualWithholding = true;
+      rows.push(formatted);
+      debugWorkers.push({
+        workerId: worker.workerId,
+        workerName: worker.workerName,
+        paychexWorkerId: worker.paychexWorkerId || null,
+        paycheckId: null,
+        source: 'saved',
+      });
+      continue;
     }
+
+    const grossThisJob = calculateGrossThisJob(worker.entries, worker.rate);
+    const grossAllWork = calculateBiweeklyGrossThisJob(
+      payPeriodHoursRows,
+      worker.workerId,
+      worker.rate
+    );
+    const estimate = estimateDeductions(grossAllWork);
+
+    logSupplementEstimateDebug({
+      worker,
+      weekStart,
+      weekEnd,
+      payPeriodStart: periodWeeks.payPeriodStart,
+      payPeriodEnd: periodWeeks.payPeriodEnd,
+      grossThisJob,
+      grossAllWork,
+      fica: estimate.fica,
+      federalWithholding: estimate.federalWithholding,
+      netPay: estimate.netPay,
+    });
+
+    const supplementRow = buildSupplementEstimate({ grossAllWork, site, worker });
+    needsManualWithholding = true;
+    hasEstimated = true;
 
     const saved = await upsertBiweeklySupplementRows({
       workerId: worker.workerId,
@@ -561,18 +753,56 @@ async function buildSupplementRows({
       row: supplementRow,
     });
 
-    rows.push(
-      formatSupplementResponse({
-        ...saved,
-        worker_name: worker.workerName,
-        classification: worker.laborClassification,
-        source: supplementRow.source,
-      })
-    );
+    const formatted = formatSupplementResponse({
+      ...saved,
+      worker_name: worker.workerName,
+      classification: worker.laborClassification,
+      source: supplementRow.source,
+      needs_manual_withholding: supplementRow.needs_manual_withholding,
+    });
+    if (formatted.needsManualWithholding) needsManualWithholding = true;
+    rows.push(formatted);
+
+    debugWorkers.push({
+      workerId: worker.workerId,
+      workerName: worker.workerName,
+      paychexWorkerId: worker.paychexWorkerId || null,
+      paycheckId: null,
+      source: 'hours',
+      gross: supplementRow.gross_earned_all_work,
+      withholding: null,
+      fica: supplementRow.deduction_fica,
+      netPay: null,
+    });
   }
 
   rows.sort((a, b) => a.worker_name.localeCompare(b.worker_name));
-  return { rows, hasEstimated };
+
+  const warnings = buildReconciliationWarnings({
+    workers,
+    checksByWorker,
+    workersWithMultipleChecksInSamePayPeriod,
+  });
+
+  const debug = {
+    companyId: companyId || null,
+    localPayPeriodId: payPeriodId || null,
+    selectedWeek: selectedWeek || null,
+    weekEndingDate,
+    paychexPayPeriodId: resolvedPaychexPayPeriodId,
+    checksFetched: allChecks.length,
+    hoursSource: 'daily_time_entries',
+    moneySource: resolvedPaychexPayPeriodId ? 'paychex_company_checks' : 'none',
+    workers: debugWorkers,
+  };
+
+  return {
+    rows,
+    hasEstimated,
+    needsManualWithholding,
+    warnings,
+    debug,
+  };
 }
 
 async function fetchAndCacheCheckData({
@@ -603,10 +833,17 @@ async function fetchAndCacheCheckData({
   );
 
   const site = await selectJobSiteWageDetermination(jobSiteId);
+  const componentMap = await getPayComponentNameMap();
+  const allChecks = await getCompanyChecksForHistory({
+    forceRefresh: true,
+    payPeriodId: periodWeeks.paychexPeriodId || payPeriodId,
+  });
+  const checksByWorker = indexChecksByWorker(allChecks);
 
   const results = [];
   for (const worker of workerResult.rows) {
-    const checkData = await fetchWorkerCheckData(worker.paychex_worker_id, payPeriodId);
+    const rawCheck = checksByWorker[worker.paychex_worker_id];
+    const checkData = rawCheck ? parseCheckForSupplement(rawCheck, componentMap) : null;
     if (!checkData) {
       results.push({ workerId: worker.paychex_worker_id, unavailable: true });
       continue;
@@ -647,6 +884,7 @@ module.exports = {
   resolvePayPeriodWeekEnds,
   resolvePayPeriodContext,
   buildSupplementRows,
+  getCertifiedPayrollData,
   clearSupplementCache,
   fetchAndCacheCheckData,
   calculateGrossThisJob,
@@ -654,5 +892,6 @@ module.exports = {
   mergeBiweeklySupplementFields,
   buildSupplementEstimate,
   buildSupplementFromPaychex,
+  groupWorkersFromHours,
   roundMoney,
 };

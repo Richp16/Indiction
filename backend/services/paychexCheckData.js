@@ -1,6 +1,12 @@
 const { paychexGet } = require('./paychexHttp');
 const { formatPaychexErrorForLog } = require('./paychexErrors');
 const { roundMoney } = require('./payrollTaxEstimate');
+const {
+  getCompanyChecksForHistory,
+  indexChecksByWorker,
+  parseCheckForSupplement,
+} = require('./paychexCompanyChecks');
+const { getPayComponentNameMap } = require('./paychexPayComponents');
 
 function toNumber(value) {
   const parsed = Number(value);
@@ -150,15 +156,20 @@ async function fetchWorkerCheckData(paychexWorkerId, payPeriodId) {
 }
 
 async function fetchChecksForWorkers({ payPeriodId, workerIds }) {
-  const results = [];
-  for (const workerId of workerIds) {
-    const parsed = await fetchWorkerCheckData(workerId, payPeriodId);
-    results.push({
+  const [allChecks, componentMap] = await Promise.all([
+    getCompanyChecksForHistory({ payPeriodId }),
+    getPayComponentNameMap(),
+  ]);
+  const checksByWorker = indexChecksByWorker(allChecks);
+
+  return workerIds.map((workerId) => {
+    const rawCheck = checksByWorker[String(workerId)];
+    const parsed = rawCheck ? parseCheckForSupplement(rawCheck, componentMap) : null;
+    return {
       workerId,
       ...(parsed || { workerId, unavailable: true }),
-    });
-  }
-  return results;
+    };
+  });
 }
 
 module.exports = {

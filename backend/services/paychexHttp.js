@@ -81,9 +81,26 @@ async function paychexGetWithRetry(path, logContext = '') {
 }
 
 /**
+ * Single-page GET (no offset/limit). Use for endpoints that reject pagination
+ * (notably GET .../checks?payperiodid=...).
+ */
+async function paychexGetOnce(path, logOptions = {}) {
+  logGetRequest(path, logOptions);
+  const response = await paychexGetWithRetry(path, `GET ${path}`);
+  return response.data.content || [];
+}
+
+/**
  * Paginated GET helper for Paychex list endpoints.
+ *
+ * Pass `{ paginate: false }` to call the path exactly as given (no offset/limit).
+ * Required for /checks until Paychex confirms pagination support.
  */
 async function paychexGet(path, logOptions = {}) {
+  if (logOptions.paginate === false) {
+    return paychexGetOnce(path, logOptions);
+  }
+
   const items = [];
   let offset = 0;
   const limit = 100;
@@ -151,6 +168,7 @@ async function checkPaychexConnectivity() {
 module.exports = {
   paychexHttp,
   paychexGet,
+  paychexGetOnce,
   paychexPost,
   paychexGetWithRetry,
   checkPaychexConnectivity,

@@ -88,6 +88,16 @@ const estimatedBadgeStyle = {
   verticalAlign: 'middle',
 };
 
+const warningBannerStyle = {
+  padding: '0.65rem 0.85rem',
+  marginBottom: '0.5rem',
+  borderRadius: 6,
+  background: '#fffbeb',
+  border: '1px solid #fcd34d',
+  color: '#92400e',
+  fontSize: 13,
+};
+
 const badgeStyle = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -128,13 +138,22 @@ export default function CertifiedPayrollPage() {
     selectedWeek,
     setSelectedWeek,
     selectedPeriod,
+    selectedPeriodPaychexId,
     weekEndingDate,
     hoursRows,
     setHoursRows,
     suppRows,
     setSuppRows,
-    hasEstimated,
     setHasEstimated,
+    needsManualWithholding,
+    setNeedsManualWithholding,
+    reconciliationWarnings,
+    setReconciliationWarnings,
+    payrollDebug,
+    setPayrollDebug,
+    checksPreview,
+    checksError,
+    checksErrorDebug,
     isLoadingPageData,
     loadError,
   } = useCertifiedPayrollData(token);
@@ -217,14 +236,19 @@ export default function CertifiedPayrollPage() {
         {
           jobSiteId: selectedSite,
           payPeriodId: selectedPayPeriodId,
+          paychexPayPeriodId: selectedPeriodPaychexId || undefined,
           weekEndingDate,
           week1End: selectedPeriod.week1End,
           week2End: selectedPeriod.week2End,
+          selectedWeek,
         },
         token
       );
       setSuppRows(result.rows || []);
       setHasEstimated(Boolean(result.hasEstimated));
+      setNeedsManualWithholding(Boolean(result.needsManualWithholding));
+      setReconciliationWarnings(result.warnings || null);
+      setPayrollDebug(result.debug || null);
       setSuccessMessage('Synced from Paychex');
       window.setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
@@ -234,7 +258,24 @@ export default function CertifiedPayrollPage() {
     }
   }
 
+  function recalculateNetPay(row) {
+    const withholdingRaw = row.deduction_withholding;
+    if (withholdingRaw == null || String(withholdingRaw).trim() === '') {
+      return '';
+    }
+    const gross = Number(row.gross_earned_all_work) || 0;
+    const fica = Number(row.deduction_fica) || 0;
+    const withholding = Number(withholdingRaw) || 0;
+    const other = Number(row.deduction_other) || 0;
+    return (Math.round((gross - fica - withholding - other) * 100) / 100).toFixed(2);
+  }
+
   async function saveSupplementField(row, field, value) {
+    const nextRow = { ...row, [field]: value };
+    if (field === 'deduction_withholding' || field === 'deduction_other') {
+      nextRow.net_pay = recalculateNetPay(nextRow);
+    }
+
     try {
       await apiPatch(
         '/api/certified-payroll/supplements',
@@ -243,18 +284,31 @@ export default function CertifiedPayrollPage() {
           jobSiteId: selectedSite,
           weekEndingDate,
           payPeriodId: selectedPayPeriodId,
-          ...row,
-          [field]: value,
+          ...nextRow,
         },
         token
       );
-      setSuppRows((all) =>
-        all.map((item) =>
+      setSuppRows((all) => {
+        const updated = all.map((item) =>
           item.worker_id === row.worker_id
-            ? { ...item, [field]: value, isEstimated: false }
+            ? {
+                ...item,
+                ...nextRow,
+                isEstimated: false,
+                needsManualWithholding:
+                  String(nextRow.deduction_withholding ?? '').trim() === '',
+              }
             : item
-        )
-      );
+        );
+        setNeedsManualWithholding(
+          updated.some(
+            (item) =>
+              item.needsManualWithholding ||
+              String(item.deduction_withholding ?? '').trim() === ''
+          )
+        );
+        return updated;
+      });
       setHasEstimated(false);
       setSavedWorkerId(row.worker_id);
       window.setTimeout(() => setSavedWorkerId(''), 2000);
@@ -338,15 +392,38 @@ export default function CertifiedPayrollPage() {
           disabled={payPeriods.length === 0}
         >
           {payPeriods.length === 0 ? (
-            <option value="">No closed pay periods</option>
+            <option value="">No Paychex pay periods (sync in Settings)</option>
           ) : (
-            payPeriods.map((period) => (
-              <option key={period.payPeriodId} value={period.payPeriodId}>
-                {period.label}
-              </option>
-            ))
+            payPeriods.map((period) => {
+              const baseLabel = period.displayLabel || period.label || period.description || period.payPeriodId;
+              const alreadyHasChecks = /\(\d+\s+checks\)/i.test(String(baseLabel));
+              const countSuffix =
+                !alreadyHasChecks && period.checkCount != null && Number.isFinite(Number(period.checkCount))
+                  ? ` (${Number(period.checkCount)} checks)`
+                  : '';
+              return (
+                <option key={period.payPeriodId} value={period.payPeriodId}>
+                  {baseLabel}
+                  {countSuffix}
+                </option>
+              );
+            })
           )}
         </select>
+
+        {selectedPeriod && (
+          <span
+            style={{
+              fontSize: 12,
+              color: '#64748b',
+              alignSelf: 'center',
+              maxWidth: 420,
+            }}
+            data-testid="paychex-period-link"
+          >
+            {`Selected Paychex pay period ID: ${selectedPeriodPaychexId || selectedPeriod.payPeriodId}`}
+          </span>
+        )}
 
         <select
           value={selectedWeek}
@@ -385,6 +462,53 @@ export default function CertifiedPayrollPage() {
         </button>
       </div>
 
+      {(checksPreview || checksError) && (
+        <div
+          style={{
+            marginBottom: '1rem',
+            padding: '0.75rem 1rem',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: 6,
+            fontSize: 13,
+          }}
+          data-testid="checks-preview"
+        >
+          {checksError ? (
+            <>
+              <p style={{ margin: 0, color: 'crimson' }}>{checksError}</p>
+              {import.meta.env.DEV && checksErrorDebug && (
+                <p
+                  style={{ margin: '0.35rem 0 0', color: '#64748b', fontSize: 12 }}
+                  data-testid="checks-error-debug"
+                >
+                  debug: companyId={checksErrorDebug.companyId ?? '—'} · payPeriodId=
+                  {checksErrorDebug.payPeriodId ?? '—'} · HTTP {checksErrorDebug.status ?? '—'} ·
+                  code={checksErrorDebug.errorCode ?? '—'}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <p style={{ margin: '0 0 0.5rem' }}>
+                {checksPreview.count} company check(s) loaded for period{' '}
+                <code>{checksPreview.payPeriodId}</code>
+              </p>
+              {checksPreview.workers?.length > 0 && (
+                <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
+                  {checksPreview.workers.map((worker) => (
+                    <li key={`${worker.workerId}-${worker.paycheckId}`}>
+                      {worker.workerId}: net {worker.netPay ?? '—'}
+                      {worker.paycheckId ? ` (${worker.paycheckId})` : ''}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       <div
         aria-busy={isLoadingPageData}
         aria-label={isLoadingPageData ? 'Certified payroll data loading' : 'Certified payroll data'}
@@ -396,8 +520,39 @@ export default function CertifiedPayrollPage() {
           </>
         ) : (
           <>
+            {reconciliationWarnings && (
+              <div style={{ marginBottom: '1rem' }} data-testid="reconciliation-warnings">
+                {(reconciliationWarnings.workersWithHoursButNoPaychexCheck || []).length > 0 && (
+                  <div className="alert alert-warning" style={warningBannerStyle}>
+                    {reconciliationWarnings.workersWithHoursButNoPaychexCheck.length} worker(s)
+                    with hours but no Paychex check for this pay period.
+                  </div>
+                )}
+                {(reconciliationWarnings.paychexChecksWithoutCertifiedPayrollRows || []).length >
+                  0 && (
+                  <div className="alert alert-warning" style={warningBannerStyle}>
+                    {reconciliationWarnings.paychexChecksWithoutCertifiedPayrollRows.length}{' '}
+                    Paychex check(s) with no hours on this job site / week.
+                  </div>
+                )}
+                {(reconciliationWarnings.workersWithMultipleChecksInSamePayPeriod || [])
+                  .length > 0 && (
+                  <div className="alert alert-warning" style={warningBannerStyle}>
+                    {reconciliationWarnings.workersWithMultipleChecksInSamePayPeriod.length}{' '}
+                    worker(s) have multiple checks in this pay period (highest gross used).
+                  </div>
+                )}
+              </div>
+            )}
+
             <section style={sectionStyle}>
               <h2 style={sectionTitleStyle}>Daily Hour Log</h2>
+              <p style={{ marginTop: 0, color: '#64748b', fontSize: 13 }}>
+                Hours from internal time entries (not Paychex).
+                {hoursRows.length === 0 && selectedPeriod
+                  ? ' No time entries found for this job site in this Paychex pay period / week.'
+                  : ''}
+              </p>
               <div style={tableWrapStyle}>
                 <table style={tableStyle}>
                   <thead>
@@ -461,11 +616,14 @@ export default function CertifiedPayrollPage() {
             <section style={sectionStyle}>
               <h2 style={sectionTitleStyle}>
                 WH-347 Supplement
-                {hasEstimated && (
-                  <span style={estimatedBadgeStyle}>Estimated — payroll not yet processed</span>
+                {needsManualWithholding && (
+                  <span style={estimatedBadgeStyle}>Enter federal withholding manually</span>
                 )}
                 {savedWorkerId && <span style={savedStyle}>Saved</span>}
               </h2>
+              <p style={{ marginTop: 0, color: '#64748b', fontSize: 13 }}>
+                Money fields prefer Paychex checks for the linked pay period when available.
+              </p>
               <div style={tableWrapStyle}>
                 <table style={tableStyle} className="wh347-supplement-table">
                   <thead>
@@ -515,20 +673,28 @@ export default function CertifiedPayrollPage() {
                             <div
                               className={MONEY_FIELDS.has(field) ? 'supplement-money-cell' : undefined}
                             >
-                              {row.isEstimated && MONEY_FIELDS.has(field) && (
-                                <span className="supplement-estimate-prefix">~</span>
-                              )}
                               <input
                                 className="supplement-input"
                                 value={row[field] ?? ''}
+                                placeholder={
+                                  field === 'deduction_withholding' || field === 'net_pay'
+                                    ? '—'
+                                    : undefined
+                                }
                                 onChange={(e) => {
                                   const value = e.target.value;
                                   setSuppRows((all) =>
-                                    all.map((item) =>
-                                      item.worker_id === row.worker_id
-                                        ? { ...item, [field]: value }
-                                        : item
-                                    )
+                                    all.map((item) => {
+                                      if (item.worker_id !== row.worker_id) return item;
+                                      const updated = { ...item, [field]: value };
+                                      if (
+                                        field === 'deduction_withholding' ||
+                                        field === 'deduction_other'
+                                      ) {
+                                        updated.net_pay = recalculateNetPay(updated);
+                                      }
+                                      return updated;
+                                    })
                                   );
                                 }}
                                 onBlur={(e) => saveSupplementField(row, field, e.target.value)}
@@ -542,6 +708,39 @@ export default function CertifiedPayrollPage() {
                 </table>
               </div>
             </section>
+
+            {import.meta.env.DEV && payrollDebug && (
+              <details style={{ marginTop: '1rem', marginBottom: '1rem' }} data-testid="payroll-debug">
+                <summary style={{ cursor: 'pointer', color: '#64748b' }}>
+                  Paychex payroll debug
+                </summary>
+                <pre
+                  style={{
+                    marginTop: '0.5rem',
+                    background: '#0f172a',
+                    color: '#e2e8f0',
+                    padding: '0.75rem',
+                    borderRadius: 6,
+                    overflow: 'auto',
+                    maxHeight: 320,
+                    fontSize: 12,
+                  }}
+                >
+                  {JSON.stringify(
+                    {
+                      localPayPeriodId: payrollDebug.localPayPeriodId,
+                      paychexPayPeriodId: payrollDebug.paychexPayPeriodId,
+                      hoursSource: payrollDebug.hoursSource,
+                      moneySource: payrollDebug.moneySource,
+                      checksFetched: payrollDebug.checksFetched,
+                      workers: payrollDebug.workers,
+                    },
+                    null,
+                    2
+                  )}
+                </pre>
+              </details>
+            )}
           </>
         )}
       </div>

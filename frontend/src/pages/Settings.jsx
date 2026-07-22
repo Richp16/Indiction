@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiGet, apiPost } from '../api/client';
+import PaychexPayPeriodsPanel from '../components/PaychexPayPeriodsPanel';
 
 export default function Settings() {
   const { token } = useAuth();
@@ -54,6 +55,8 @@ export default function Settings() {
           </pre>
         )}
       </section>
+
+      <PaychexPayPeriodsPanel token={token} />
 
       <section>
         <h2>Alerts</h2>

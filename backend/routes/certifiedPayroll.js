@@ -50,7 +50,14 @@ router.get('/hours', async (req, res) => {
 
 router.get('/supplements', async (req, res) => {
   try {
-    const { jobSiteId, weekEndingDate, payPeriodId, forceRefresh } = req.query;
+    const {
+      jobSiteId,
+      weekEndingDate,
+      payPeriodId,
+      paychexPayPeriodId,
+      selectedWeek,
+      forceRefresh,
+    } = req.query;
     if (!jobSiteId || !weekEndingDate || !payPeriodId) {
       return res.status(400).json({
         message: 'jobSiteId, weekEndingDate, and payPeriodId are required',
@@ -63,9 +70,13 @@ router.get('/supplements', async (req, res) => {
       jobSiteId,
       weekEndingDate,
       payPeriodId,
+      paychexPayPeriodId: paychexPayPeriodId || periodWeeks?.paychexPeriodId || null,
       payPeriodStart: periodWeeks?.payPeriodStart,
       payPeriodEnd: periodWeeks?.payPeriodEnd,
+      week1End: periodWeeks?.week1End,
+      week2End: periodWeeks?.week2End,
       forceRefresh: forceRefresh === 'true',
+      selectedWeek: selectedWeek || null,
     });
     res.json(result);
   } catch (error) {
@@ -101,7 +112,15 @@ router.post('/fetch-check-data', async (req, res) => {
 
 router.post('/resync', async (req, res) => {
   try {
-    const { jobSiteId, payPeriodId, weekEndingDate, week1End, week2End } = req.body;
+    const {
+      jobSiteId,
+      payPeriodId,
+      paychexPayPeriodId,
+      weekEndingDate,
+      week1End,
+      week2End,
+      selectedWeek,
+    } = req.body;
     if (!jobSiteId || !payPeriodId || !weekEndingDate) {
       return res.status(400).json({
         message: 'jobSiteId, payPeriodId, and weekEndingDate are required',
@@ -117,11 +136,13 @@ router.post('/resync', async (req, res) => {
       jobSiteId,
       weekEndingDate,
       payPeriodId,
+      paychexPayPeriodId: paychexPayPeriodId || periodWeeks?.paychexPeriodId || null,
       payPeriodStart: periodWeeks?.payPeriodStart,
       payPeriodEnd: periodWeeks?.payPeriodEnd,
       week1End,
       week2End,
       forceRefresh: true,
+      selectedWeek: selectedWeek || null,
     });
 
     res.json({ success: true, ...result });

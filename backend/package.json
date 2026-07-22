@@ -22,6 +22,7 @@
     "test": "node --test tests/*.test.js",
     "migrate:007-008": "node scripts/run-migration-007-008.js",
     "migrate:009": "node scripts/run-migration-009.js",
+    "migrate:010": "node scripts/run-migration-010.js",
     "paychex:health": "node scripts/check-paychex-connectivity.js"
   },
   "allowScripts": {

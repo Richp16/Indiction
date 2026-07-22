@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiGet } from '../api/client';
 import PayrollExport from '../components/PayrollExport';
+import PayPeriodSelector from '../components/PayPeriodSelector';
 
 export default function PayrollPage() {
   const { token } = useAuth();
-  const [period, setPeriod] = useState(null);
+  const [periods, setPeriods] = useState([]);
+  const [selectedPayPeriodId, setSelectedPayPeriodId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -14,10 +16,22 @@ export default function PayrollPage() {
       setLoading(true);
       setError('');
       try {
-        const periodData = await apiGet('/api/pay-periods/current', token);
-        setPeriod(periodData);
+        const data = await apiGet('/api/payroll/pay-periods', token);
+        const nextPeriods = data.periods || [];
+        setPeriods(nextPeriods);
+
+        const current =
+          nextPeriods.find((period) => period.isCurrent) || nextPeriods[0] || null;
+        setSelectedPayPeriodId((existing) => {
+          if (existing && nextPeriods.some((period) => period.id === existing)) {
+            return existing;
+          }
+          return current?.id || '';
+        });
       } catch (err) {
-        setError(err.message || 'Failed to load pay period');
+        setError(err.message || 'Failed to load pay periods');
+        setPeriods([]);
+        setSelectedPayPeriodId('');
       } finally {
         setLoading(false);
       }
@@ -33,16 +47,16 @@ export default function PayrollPage() {
     <div>
       <h1>Payroll</h1>
 
-      {period && (
-        <p>
-          Pay period: {period.start_date} – {period.end_date}
-        </p>
-      )}
+      <PayPeriodSelector
+        periods={periods}
+        selectedPayPeriodId={selectedPayPeriodId}
+        onChange={setSelectedPayPeriodId}
+      />
 
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
 
-      {period && (
-        <PayrollExport payPeriodId={period.id} token={token} showInstructions />
+      {selectedPayPeriodId && (
+        <PayrollExport payPeriodId={selectedPayPeriodId} token={token} showInstructions />
       )}
     </div>
   );

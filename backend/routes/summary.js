@@ -3,48 +3,13 @@ const { query } = require('../db');
 const { getAggregatedSummary, getCompanyEarnings, generateCSV, EMPLOYER_LIABILITY_RATE } = require('../services/aggregation');
 const { subtractBusinessDays } = require('../utils/businessDays');
 const { requireRole } = require('../middleware/roleGuard');
+const {
+  findCurrentPayPeriod,
+  resolvePayrollPeriodFromQuery,
+  formatPeriodLabel,
+} = require('../services/payrollPayPeriods');
 
 const router = express.Router();
-
-const PAY_PERIOD_SELECT = `
-  SELECT
-    id,
-    paychex_period_id,
-    start_date::text,
-    end_date::text,
-    submit_by_date::text,
-    pay_date::text,
-    status,
-    week1_start::text,
-    week1_end::text,
-    week2_start::text,
-    week2_end::text
-  FROM pay_periods`;
-
-async function findCurrentPayPeriod() {
-  let result = await query(
-    `${PAY_PERIOD_SELECT}
-     WHERE status = 'OPEN'
-       AND start_date <= CURRENT_DATE
-       AND end_date >= CURRENT_DATE
-     ORDER BY start_date DESC
-     LIMIT 1`
-  );
-
-  if (result.rows.length > 0) {
-    return result.rows[0];
-  }
-
-  result = await query(
-    `${PAY_PERIOD_SELECT}
-     WHERE status = 'OPEN'
-       AND start_date > CURRENT_DATE
-     ORDER BY start_date ASC
-     LIMIT 1`
-  );
-
-  return result.rows[0] || null;
-}
 
 async function getCurrentPayPeriod(req, res) {
   try {
@@ -60,7 +25,75 @@ async function getCurrentPayPeriod(req, res) {
   }
 }
 
+async function loadPeriodEntries(payPeriodId) {
+  const result = await query(
+    `SELECT
+       d.id,
+       d.worker_id,
+       d.job_site_id,
+       d.date_worked AS entry_date,
+       d.hours_worked AS hours,
+       d.pay_code,
+       d.paychex_component_id,
+       d.component_name,
+       d.component_rate,
+       d.reimbursement_amount,
+       d.pay_period_id,
+       d.pay_period_end_date,
+       d.labor_classification_id,
+       d.week_number,
+       d.entered_by,
+       d.created_at,
+       w.first_name AS worker_first_name,
+       w.last_name AS worker_last_name,
+       js.name AS job_site_name
+     FROM daily_time_entries d
+     JOIN workers w ON d.worker_id = w.id
+     LEFT JOIN job_sites js ON d.job_site_id = js.id
+     WHERE d.pay_period_id = $1
+     ORDER BY d.date_worked DESC, w.last_name, w.first_name`,
+    [payPeriodId]
+  );
+  return result.rows;
+}
+
 router.get('/current', getCurrentPayPeriod);
+
+router.get('/analysis', async (req, res) => {
+  try {
+    const period = await resolvePayrollPeriodFromQuery({
+      periodStart: req.query.periodStart,
+      periodEnd: req.query.periodEnd,
+      payPeriodId: req.query.payPeriodId,
+    });
+
+    const [rows, totalEarnings, entries] = await Promise.all([
+      getAggregatedSummary(period.id),
+      getCompanyEarnings(period.id),
+      loadPeriodEntries(period.id),
+    ]);
+    const employerLiability = totalEarnings * EMPLOYER_LIABILITY_RATE;
+
+    res.json({
+      payPeriod: {
+        id: period.id,
+        start_date: period.start_date,
+        end_date: period.end_date,
+        startDate: period.start_date,
+        endDate: period.end_date,
+        label: formatPeriodLabel(period.start_date, period.end_date),
+        status: period.status,
+      },
+      rows,
+      entries,
+      totalEarnings,
+      employerLiability,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message });
+  }
+});
 
 router.get('/csv', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {

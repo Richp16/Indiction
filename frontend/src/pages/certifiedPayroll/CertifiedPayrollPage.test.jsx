@@ -8,15 +8,40 @@ const mockSites = [
   { id: 'site-2', name: 'Second Site', job_code: 'SS-02', is_active: true },
 ];
 
-const mockPeriods = {
+const mockCompany = { companyId: '004WOHNWM70Z2EDFHRDY' };
+
+const mockPaychexPeriods = {
   periods: [
     {
-      payPeriodId: 'pp-1',
-      label: 'Jan 1 – Jan 14, 2026',
-      week1Label: 'Week 1: Jan 1 – Jan 7',
-      week2Label: 'Week 2: Jan 8 – Jan 14',
-      week1End: '2026-01-07',
-      week2End: '2026-01-14',
+      payPeriodId: '1140037241110861',
+      label: 'Jun 14 – Jun 27, 2026',
+      displayLabel: 'Jun 14 – Jun 27, 2026',
+      startDate: '2026-06-14',
+      endDate: '2026-06-27',
+      week1Start: '2026-06-14',
+      week1End: '2026-06-20',
+      week2Start: '2026-06-21',
+      week2End: '2026-06-27',
+      week1Label: 'Week 1: Jun 14 – Jun 20',
+      week2Label: 'Week 2: Jun 21 – Jun 27',
+      checkCount: 37,
+      status: 'COMPLETED',
+      description: 'Biweekly',
+    },
+    {
+      payPeriodId: '1140037241110999',
+      label: 'Jun 28 – Jul 11, 2026',
+      displayLabel: 'Jun 28 – Jul 11, 2026',
+      startDate: '2026-06-28',
+      endDate: '2026-07-11',
+      week1Start: '2026-06-28',
+      week1End: '2026-07-04',
+      week2Start: '2026-07-05',
+      week2End: '2026-07-11',
+      week1Label: 'Week 1: Jun 28 – Jul 4',
+      week2Label: 'Week 2: Jul 5 – Jul 11',
+      checkCount: 10,
+      status: 'COMPLETED',
     },
   ],
 };
@@ -44,9 +69,30 @@ const mockSupplements = {
       classification: 'Carpenter',
       wage_determination_no: 'WD-1',
       net_pay: '500.00',
+      source: 'paychex',
     },
   ],
   hasEstimated: false,
+  warnings: {
+    workersWithHoursButNoPaychexCheck: [],
+    paychexChecksWithoutCertifiedPayrollRows: [],
+    workersWithMultipleChecksInSamePayPeriod: [],
+  },
+  debug: {
+    localPayPeriodId: '1140037241110861',
+    paychexPayPeriodId: '1140037241110861',
+    hoursSource: 'daily_time_entries',
+    moneySource: 'paychex_company_checks',
+    workers: [],
+  },
+};
+
+const mockChecks = {
+  payPeriodId: '1140037241110861',
+  count: 37,
+  checks: [
+    { workerId: '004WOHNWMFGQKR2RLNJS', paycheckId: 'chk-1', netPay: 800 },
+  ],
 };
 
 let apiGetMock;
@@ -78,7 +124,13 @@ function setupApiMocks({ delayTableData = false } = {}) {
 
   apiGetMock = vi.fn(async (path) => {
     if (path === '/api/job-sites') return mockSites;
-    if (path === '/api/certified-payroll/pay-periods') return mockPeriods;
+    if (path === '/api/paychex/company') return mockCompany;
+    if (path.includes('/api/paychex/companies/') && path.includes('/pay-periods')) {
+      return mockPaychexPeriods;
+    }
+    if (path.includes('/api/paychex/companies/') && path.includes('/checks')) {
+      return mockChecks;
+    }
     if (path.includes('/api/certified-payroll/hours')) {
       if (hoursDeferred) return hoursDeferred.promise;
       return mockHours;
@@ -141,9 +193,21 @@ describe('CertifiedPayrollPage loading states', () => {
     expect(screen.queryByText('No hour entries for this week and job site.')).not.toBeInTheDocument();
   });
 
+  it('loads all Paychex pay periods into the dropdown', async () => {
+    render(<CertifiedPayrollPage />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Pay period')).toBeInTheDocument();
+    });
+
+    const periodSelect = screen.getByLabelText('Pay period');
+    expect(within(periodSelect).getAllByRole('option').length).toBe(2);
+    expect(periodSelect).toHaveValue('1140037241110861');
+  });
+
   it('shows skeletons again when filters change', async () => {
     const user = userEvent.setup();
-    const { hoursDeferred, supplementsDeferred } = setupApiMocks();
+    setupApiMocks();
     render(<CertifiedPayrollPage />);
 
     await waitFor(() => {
@@ -154,7 +218,9 @@ describe('CertifiedPayrollPage loading states', () => {
     const delayedSupplements = deferred();
     apiGetMock.mockImplementation(async (path) => {
       if (path === '/api/job-sites') return mockSites;
-      if (path === '/api/certified-payroll/pay-periods') return mockPeriods;
+      if (path === '/api/paychex/company') return mockCompany;
+      if (path.includes('/pay-periods')) return mockPaychexPeriods;
+      if (path.includes('/checks')) return mockChecks;
       if (path.includes('/api/certified-payroll/hours')) return delayedHours.promise;
       if (path.includes('/api/certified-payroll/supplements')) return delayedSupplements.promise;
       throw new Error(`Unexpected apiGet path: ${path}`);
@@ -233,12 +299,93 @@ describe('CertifiedPayrollPage loading states', () => {
     });
   });
 
+  it('shows selected Paychex pay period ID', async () => {
+    render(<CertifiedPayrollPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('paychex-period-link')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('paychex-period-link')).toHaveTextContent(
+      'Selected Paychex pay period ID: 1140037241110861'
+    );
+  });
+
+  it('passes paychexPayPeriodId on supplements request', async () => {
+    render(<CertifiedPayrollPage />);
+
+    await waitFor(() => {
+      expect(apiGetMock).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      const supplementCall = apiGetMock.mock.calls.find(([path]) =>
+        String(path).includes('/api/certified-payroll/supplements')
+      );
+      expect(supplementCall).toBeTruthy();
+      expect(supplementCall[0]).toContain('paychexPayPeriodId=1140037241110861');
+      expect(supplementCall[0]).toContain('payPeriodId=1140037241110861');
+    });
+  });
+
+  it('loads company checks preview for the selected Paychex period', async () => {
+    render(<CertifiedPayrollPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('checks-preview')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('checks-preview')).toHaveTextContent(
+      '37 company check(s) loaded'
+    );
+  });
+
+  it('keeps hour log visible when company checks return a Paychex server error', async () => {
+    apiGetMock = vi.fn(async (path) => {
+      if (path === '/api/job-sites') return mockSites;
+      if (path === '/api/paychex/company') return mockCompany;
+      if (path.includes('/pay-periods')) return mockPaychexPeriods;
+      if (path.includes('/checks')) {
+        const err = new Error(
+          'Paychex returned a server error for this pay period. Try again later or contact Paychex API Developer Center Support.'
+        );
+        err.status = 500;
+        err.code = 'API-1';
+        err.debug = {
+          companyId: mockCompany.companyId,
+          payPeriodId: '1140037241110861',
+          status: 500,
+          errorCode: 'API-1',
+        };
+        throw err;
+      }
+      if (path.includes('/api/certified-payroll/hours')) return mockHours;
+      if (path.includes('/api/certified-payroll/supplements')) return mockSupplements;
+      throw new Error(`Unexpected apiGet path: ${path}`);
+    });
+
+    render(<CertifiedPayrollPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('checks-preview')).toHaveTextContent(
+        'Paychex returned a server error for this pay period'
+      );
+    });
+
+    expect(screen.getByText('Daily Hour Log', { selector: 'h2' })).toBeInTheDocument();
+    expect(screen.getByText('Jane Doe')).toBeInTheDocument();
+  });
+
   it('shows empty state only after data has loaded', async () => {
     apiGetMock = vi.fn(async (path) => {
       if (path === '/api/job-sites') return mockSites;
-      if (path === '/api/certified-payroll/pay-periods') return mockPeriods;
+      if (path === '/api/paychex/company') return mockCompany;
+      if (path.includes('/pay-periods')) return mockPaychexPeriods;
+      if (path.includes('/checks')) return mockChecks;
       if (path.includes('/api/certified-payroll/hours')) return { rows: [] };
-      if (path.includes('/api/certified-payroll/supplements')) return { rows: [], hasEstimated: false };
+      if (path.includes('/api/certified-payroll/supplements')) {
+        return { rows: [], hasEstimated: false };
+      }
       throw new Error(`Unexpected apiGet path: ${path}`);
     });
 

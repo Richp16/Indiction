@@ -11,7 +11,11 @@ async function parseResponse(res) {
         ? data.errors.map((e) => `Row ${e.row + 1}: ${e.reason}`).join('; ')
         : null) ||
       'Request failed';
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = res.status;
+    error.code = data.code;
+    error.debug = data.debug || null;
+    throw error;
   }
   return data;
 }

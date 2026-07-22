@@ -1,17 +1,22 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  filterClosedPayPeriods,
+  extractPayPeriodFromCheck,
+  indexChecksByWorker,
+  reconstructPayPeriodsFromChecks,
+  buildPeriodShape,
+  parsePayPeriodId,
+  filterChecksForPayPeriod,
+  parseCheckForSupplement,
   parsePaychexDateString,
-  buildHistoryDateWindow,
-  normalizePayPeriod,
-  hasHistoricalPeriods,
-  buildPayPeriodsPath,
+  todayUtcMidnight,
   CLOSED_PERIODS_LIMIT,
   HISTORY_MONTHS,
-} = require('../services/paychexPayPeriods');
+  buildHistoryDateWindow,
+} = require('../services/paychexCompanyChecks');
+const { buildComponentMap, resolveComponentLabel } = require('../services/paychexPayComponents');
 
-describe('certified payroll pay period filtering', () => {
+describe('certified payroll company checks pipeline', () => {
   const today = new Date();
   const yesterday = new Date(Date.UTC(
     today.getUTCFullYear(),
@@ -33,38 +38,28 @@ describe('certified payroll pay period filtering', () => {
     return date.toISOString().split('T')[0];
   }
 
+  function sampleCheck({ workerId, startDate, endDate, gross = 1000 }) {
+    return {
+      workerId,
+      grossEarnings: gross,
+      netPay: gross * 0.8,
+      payPeriod: { startDate, endDate },
+      taxes: [
+        { taxType: 'FEDERAL_INCOME', amount: 100, componentType: 'EMPLOYEE' },
+        { taxType: 'SOCIAL_SECURITY', amount: 50, componentType: 'EMPLOYEE' },
+        { taxType: 'MEDICARE', amount: 20, componentType: 'EMPLOYEE' },
+      ],
+      deductions: [{ componentId: 'ded-1', amount: 25 }],
+    };
+  }
+
   it('parses Paychex date strings as UTC midnight', () => {
     const parsed = parsePaychexDateString('2026-06-27T00:00:00Z');
     assert.equal(parsed.toISOString().slice(0, 10), '2026-06-27');
   });
 
-  it('filters to closed periods only and returns up to 10 most recent', () => {
-    const periods = Array.from({ length: 12 }, (_, index) => ({
-      payPeriodId: `period-${index}`,
-      startDate: isoDate(new Date(Date.UTC(2025, 0, 1 + index * 14))),
-      endDate: isoDate(new Date(Date.UTC(2025, 0, 14 + index * 14))),
-    }));
-
-    periods.push({
-      payPeriodId: 'open-period',
-      startDate: isoDate(yesterday),
-      endDate: isoDate(tomorrow),
-    });
-
-    const recent = filterClosedPayPeriods(periods);
-
-    assert.equal(recent.length, CLOSED_PERIODS_LIMIT);
-    assert.ok(recent.every((period) => parsePaychexDateString(period.endDate) < new Date(
-      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
-    )));
-    assert.equal(recent[0].payPeriodId, 'period-11');
-    assert.equal(recent[recent.length - 1].payPeriodId, 'period-2');
-    assert.ok(!recent.some((period) => period.payPeriodId === 'open-period'));
-  });
-
   it('builds a six-month history window ending today', () => {
     const window = buildHistoryDateWindow();
-    const today = new Date();
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - HISTORY_MONTHS);
 
@@ -72,78 +67,101 @@ describe('certified payroll pay period filtering', () => {
     assert.equal(window.startDate, sixMonthsAgo.toISOString().split('T')[0]);
   });
 
-  it('normalizes processing period ids and date fields', () => {
-    const normalized = normalizePayPeriod({
-      processingPeriodId: 'proc-1',
-      processingPeriodStartDate: '2026-01-01',
-      processingPeriodEndDate: '2026-01-14',
-      status: 'PROCESSED',
+  it('extracts pay period dates from check objects', () => {
+    const period = extractPayPeriodFromCheck({
+      payPeriod: { startDate: '2026-01-01', endDate: '2026-01-14' },
     });
+    assert.deepEqual(period, { startDate: '2026-01-01', endDate: '2026-01-14' });
+  });
 
-    assert.deepEqual(normalized, {
-      payPeriodId: 'proc-1',
+  it('reconstructs closed pay periods from checks and limits to 10', () => {
+    const checks = Array.from({ length: 12 }, (_, index) =>
+      sampleCheck({
+        workerId: `worker-${index}`,
+        startDate: isoDate(new Date(Date.UTC(2025, 0, 1 + index * 14))),
+        endDate: isoDate(new Date(Date.UTC(2025, 0, 14 + index * 14))),
+      })
+    );
+
+    checks.push(
+      sampleCheck({
+        workerId: 'open-worker',
+        startDate: isoDate(yesterday),
+        endDate: isoDate(tomorrow),
+      })
+    );
+
+    const periods = reconstructPayPeriodsFromChecks(checks);
+    assert.equal(periods.length, CLOSED_PERIODS_LIMIT);
+    assert.ok(periods.every((period) => parsePaychexDateString(period.endDate) < todayUtcMidnight()));
+    assert.ok(periods[0].endDate >= periods[periods.length - 1].endDate);
+  });
+
+  it('builds biweekly period shape with local payPeriodId key', () => {
+    const shaped = buildPeriodShape({
       startDate: '2026-01-01',
       endDate: '2026-01-14',
-      status: 'PROCESSED',
-      sourceIdField: 'processingPeriodId',
     });
+
+    assert.equal(shaped.payPeriodId, '2026-01-01_2026-01-14');
+    assert.equal(shaped.week1Start, '2026-01-01');
+    assert.equal(shaped.week1End, '2026-01-07');
+    assert.equal(shaped.week2Start, '2026-01-08');
+    assert.equal(shaped.week2End, '2026-01-14');
   });
 
-  it('detects historical periods by closed end date or processed status', () => {
-    assert.equal(
-      hasHistoricalPeriods([
-        {
-          payPeriodId: 'future',
-          startDate: isoDate(tomorrow),
-          endDate: isoDate(tomorrow),
-          status: 'INITIAL',
-        },
-      ]),
-      false
-    );
-
-    assert.equal(
-      hasHistoricalPeriods([
-        {
-          payPeriodId: 'processed',
-          startDate: isoDate(twoWeeksAgo),
-          endDate: isoDate(tomorrow),
-          status: 'PROCESSED',
-        },
-      ]),
-      true
-    );
+  it('parses payPeriodId keys back into period context', () => {
+    const parsed = parsePayPeriodId('2026-01-01_2026-01-14');
+    assert.equal(parsed.startDate, '2026-01-01');
+    assert.equal(parsed.week2End, '2026-01-14');
   });
 
-  it('builds pay period paths with date query params', () => {
-    process.env.PAYCHEX_COMPANY_ID = 'company-123';
-    const path = buildPayPeriodsPath(
-      'payperiods',
-      { label: 'from/to', startKey: 'from', endKey: 'to' },
-      { startDate: '2026-01-10', endDate: '2026-07-10' }
-    );
+  it('indexes checks by worker and keeps highest gross check', () => {
+    const checks = [
+      sampleCheck({ workerId: 'w1', startDate: '2026-01-01', endDate: '2026-01-14', gross: 900 }),
+      sampleCheck({ workerId: 'w1', startDate: '2026-01-01', endDate: '2026-01-14', gross: 1200 }),
+      sampleCheck({ workerId: 'w2', startDate: '2026-01-01', endDate: '2026-01-14', gross: 800 }),
+    ];
 
-    assert.equal(
-      path,
-      '/companies/company-123/payperiods?from=2026-01-10&to=2026-07-10'
-    );
+    const indexed = indexChecksByWorker(checks);
+    assert.equal(indexed.w1.grossEarnings, 1200);
+    assert.equal(indexed.w2.grossEarnings, 800);
   });
 
-  it('excludes periods with unparseable end dates', () => {
-    const recent = filterClosedPayPeriods([
-      {
-        payPeriodId: 'bad-date',
-        startDate: '2026-01-01',
-        endDate: 'not-a-date',
-      },
-      {
-        payPeriodId: 'good-date',
+  it('filters checks for a selected pay period', () => {
+    const checks = [
+      sampleCheck({ workerId: 'w1', startDate: '2026-01-01', endDate: '2026-01-14' }),
+      sampleCheck({ workerId: 'w2', startDate: '2026-01-15', endDate: '2026-01-28' }),
+    ];
+
+    const filtered = filterChecksForPayPeriod(checks, '2026-01-01', '2026-01-14');
+    assert.equal(filtered.length, 1);
+    assert.equal(filtered[0].workerId, 'w1');
+  });
+
+  it('parses supplement values from a check', () => {
+    const componentMap = buildComponentMap([
+      { componentId: 'ded-1', name: 'Health Insurance' },
+    ]);
+    const parsed = parseCheckForSupplement(
+      sampleCheck({
+        workerId: 'w1',
         startDate: isoDate(twoWeeksAgo),
         endDate: isoDate(yesterday),
-      },
-    ]);
+        gross: 1000,
+      }),
+      componentMap
+    );
 
-    assert.equal(recent.length, 1);
-    assert.equal(recent[0].payPeriodId, 'good-date');
+    assert.equal(parsed.grossPay, 1000);
+    assert.equal(parsed.federalWithholding, 100);
+    assert.equal(parsed.fica, 70);
+    assert.equal(parsed.otherDeductions[0].label, 'Health Insurance');
+    assert.equal(parsed.isEstimate, false);
+  });
+
+  it('resolves deduction labels from pay component map', () => {
+    const map = buildComponentMap([{ componentId: '401k', name: '401k' }]);
+    assert.equal(resolveComponentLabel({ componentId: '401k', amount: 10 }, map), '401k');
   });
 });
