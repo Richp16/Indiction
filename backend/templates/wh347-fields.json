@@ -1,0 +1,2456 @@
+[
+  {
+    "name": "Certified Payroll No",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Date of Work Day 1",
+    "type": "PDFTextField",
+    "maxLength": 7,
+    "page": 1
+  },
+  {
+    "name": "Date of Work Day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Date of Work Day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Date of Work Day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Date of Work Day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Date of Work Day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Date of Work Day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Day 7",
+    "type": "PDFTextField",
+    "maxLength": 7,
+    "page": 1
+  },
+  {
+    "name": "FICA 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "FICA 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "FICA 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "FICA 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "FICA 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "FICA 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "FICA 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "FICA 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned for All Work 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned for All Work 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned for All Work 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned for All Work 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned for All Work 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned for All Work 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned for All Work 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Gross Amt Earned for All Work 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Net Pay for All Work 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Net Pay for All Work 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Net Pay for All Work 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Net Pay for All Work 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Net Pay for All Work 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Net Pay for All Work 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Net Pay for All Work 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Net Pay for All Work 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "OT Hourly Wage Rate 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "OT Hourly Wage Rate 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "OT Hourly Wage Rate 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "OT Hourly Wage Rate 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "OT Hourly Wage Rate 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "OT Hourly Wage Rate 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "OT Hourly Wage Rate 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "OT Hourly Wage Rate 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Other Deductions 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Other Deductions 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Other Deductions 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Other Deductions 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Other Deductions 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Other Deductions 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Other Deductions 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Other Deductions 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Payment In Lieu of Fringe Benefits 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Payment in Lieu of Fringe Benefits 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Payment in Lieu of Fringe Benefits 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Payment in Lieu of Fringe Benefits 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Payment in Lieu of Fringe Benefits 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Payment in Lieu of Fringe Benefits 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Payment in Lieu of Fringe Benefits 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Payment in Lieu of Fringe Benefits 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "PRIME CONTRACTOR",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "PRIME CONTRACTORSSUBCONTRACTORS BUSINESS ADDRESS",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Prime ContractorsSubcontractorsBusinessName",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "PROJECT LOCATION",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Project Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Project No. or Contract No",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "ST Hourly Wage Rate 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "ST Hourly Wage Rate 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "ST Hourly Wage Rate 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "ST Hourly Wage Rate 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "ST Hourly Wage Rate 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "ST Hourly Wage Rate 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "ST Hourly Wage Rate 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "ST Hourly Wage Rate 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "SUBCONTRACTOR",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "SUBMISSION OF FINAL DBRA CERTIFIED PAYROLL FORM",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Tax Withholdings 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Tax Withholdings 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Tax Withholdings 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Tax Withholdings 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Tax Withholdings 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Tax Withholdings 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Tax Withholdings 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Tax Withholdings 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Deductions 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Deductions 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Deductions 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Deductions 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Deductions 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Deductions 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Deductions 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Deductions 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Fringe Benefit Credit 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Fringe Benefit Credit 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Fringe Benefit Credit 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Fringe Benefit Credit 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Fringe Benefit Credit 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Fringe Benefit Credit 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Fringe Benefit Credit 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Fringe Benefit Credit 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Hours Worked 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Hours Worked 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Hours Worked 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Hours Worked 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Hours Worked 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Hours Worked 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Hours Worked 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Total Hours Worked 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "WAGE DETERMINATION NO",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "WEEK ENDING DATE",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker Entry No. 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker Entry No. 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker Entry No. 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker Entry No. 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker Entry No. 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker Entry No. 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker Entry No. 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker Entry No. 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No 8 ST Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 First Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 Identifying No",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 J JOURNEYWORKER RA REGISTERD APPRENTICE",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 Labor Classification",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 Last Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 Middle Initial",
+    "type": "PDFTextField",
+    "maxLength": 2,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 OT Hours Day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 OT Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 OT Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 OT Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 OT Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 OT Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 OT Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 ST Hours Day 1",
+    "type": "PDFTextField",
+    "maxLength": 7,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 ST Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 ST Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 ST Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 ST Hours Day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 ST Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 1 ST Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2  Last Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 First Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 Identifying No",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 J JOURNEYWORKER RA REGISTERD APPRENTICE",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 Labor Classification",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 Middle Initial",
+    "type": "PDFTextField",
+    "maxLength": 2,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 OT Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 OT Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 OT Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 OT Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 OT Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 OT Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 OT Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 ST Hours Day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 ST Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 ST Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 ST Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 ST Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 ST Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 2 ST Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 First Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 Identifying No",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 J JOURNEYWORKER RA REGISTERD APPRENTICE",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 Labor Classification",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 Last Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 Middle Initial",
+    "type": "PDFTextField",
+    "maxLength": 2,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 OT Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 OT Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 OT Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 OT Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 OT Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 OT Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 OT Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 ST Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": 7,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 ST Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 ST Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 ST Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 ST Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 ST Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 3 ST Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 First Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 Identifying No",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 J JOURNEYWORKER RA REGISTERD APPRENTICE",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 Labor Classification",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 Last Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 Middle Initial",
+    "type": "PDFTextField",
+    "maxLength": 2,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 OT Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 OT Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 OT Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 OT Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 OT Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 OT Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 OT Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 ST Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": 7,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 ST Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 ST Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 ST Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 ST Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 ST Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 4 ST Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 First Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 Identifying No",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 J JOURNEYWORKER RA REGISTERD APPRENTICE",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 Labor Classification",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 Last Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 Middle Initial",
+    "type": "PDFTextField",
+    "maxLength": 2,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 OT Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 OT Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 OT Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 OT Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 OT Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 OT Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 OT Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 ST Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 ST Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 ST Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 ST Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 ST Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 ST Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 5 ST Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 First Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 Identifying No",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 J JOURNEYWORKER RA REGISTERD APPRENTICE",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 Labor Classification",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 Last Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 Middle Initial",
+    "type": "PDFTextField",
+    "maxLength": 2,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 OT Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 OT Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 OT Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 OT Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 OT Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 OT Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 OT Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 ST Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 ST Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 ST Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 ST Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 ST Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 ST Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 6 ST Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 First Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 Identifying No",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 J JOURNEYWORKER RA REGISTERD APPRENTICE",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 Labor Classification",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 Last Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 Middle Initial",
+    "type": "PDFTextField",
+    "maxLength": 2,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 OT Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 OT Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 OT Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 OT Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 OT Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 OT Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 OT Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 ST Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 ST Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 ST Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 ST Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 ST Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 ST Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 7 ST Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 First Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 Identifying No",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 J JOURNEYWORKER RA REGISTERD APPRENTICE",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 Labor Classification",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 Last Name",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 Middle Initial",
+    "type": "PDFTextField",
+    "maxLength": 2,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 OT Hours Day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 OT Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 OT Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 OT Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 OT Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 OT Hours day 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 OT Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 ST Hours day 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 ST Hours day 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 ST Hours day 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 ST Hours day 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 ST Hours day 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "Worker No. 8 ST Hours day 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 1
+  },
+  {
+    "name": "ADDITIONAL REMARKS",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "APPRENTICESHIP PROGRAM NAMERow1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "APPRENTICESHIP PROGRAM NAMERow2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "APPRENTICESHIP PROGRAM NAMERow3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Area Code",
+    "type": "PDFTextField",
+    "maxLength": 3,
+    "page": 2
+  },
+  {
+    "name": "CERTIFYING OFFICIALs NAME AND TITLERow1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Check Box1",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Check Box2",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Check Box3",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Check Box4",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Check Box5",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Check Box6",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "DATERow1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "EMAIL ADDRESS",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB Name 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB Name 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB Name 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB Name 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB Name 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB Name 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB Type 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB Type 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB Type 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB Type 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB Type 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "FB TYPE_4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Funded",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Funded_2",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Funded_3",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Funded_4",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Funded_5",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Funded_6",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit  row 1-3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 1-1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 1-2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 1-4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 1-5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 1-6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 2-1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 2-2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 2-3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 2-4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 2-5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 2-6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 3-1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 3-2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 3-3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 3-4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 3-5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 3-6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 4-1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 4-2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 4-3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 4-4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 4-5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 4-6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 5-1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 5-2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 5-3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 5-4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 5-5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 5-6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 6-1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 6-2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 6-3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 6-4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 6-5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 6-6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 7-1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 7-2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 7-3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 7-4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 7-5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 7-6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 8-1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 8-2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 8-3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 8-4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 8-5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Hourly Credit row 8-6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "NAME OF LABOR CLASSIFICATIONSAA",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "NAME OF LABOR CLASSIFICATIONSAA_2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "NAME OF LABOR CLASSIFICATIONSAA_3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "NAME OF WORKERRow1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "NAME OF WORKERRow2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "NAME OF WORKERRow3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "NAME OF WORKERRow4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "NAME OF WORKERRow5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "NAME OF WORKERRow6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "NAME OF WORKERRow7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "NAME OF WORKERRow8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Plan NO 1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Plan NO 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Plan NO 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Plan NO 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Plan NO 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "PLAN NO_4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "SAA",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "SAA_2",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "SAA_3",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "SIGNATURE OF CERTIFYING OFFICIALRow1",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Telephone Number part 1",
+    "type": "PDFTextField",
+    "maxLength": 3,
+    "page": 2
+  },
+  {
+    "name": "Telephone Number part 2",
+    "type": "PDFTextField",
+    "maxLength": 4,
+    "page": 2
+  },
+  {
+    "name": "Total Hourly Credit",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Total Hourly Credit 2",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Total Hourly Credit 3",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Total Hourly Credit 4",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Total Hourly Credit 5",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Total Hourly Credit 6",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Total Hourly Credit 7",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Total Hourly Credit 8",
+    "type": "PDFTextField",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "undefined_43",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "undefined_44",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "undefined_45",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Unfunded",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Unfunded_2",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Unfunded_3",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Unfunded_4",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Unfunded_5",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  },
+  {
+    "name": "Unfunded_6",
+    "type": "PDFCheckBox",
+    "maxLength": null,
+    "page": 2
+  }
+]

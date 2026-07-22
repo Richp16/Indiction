@@ -209,9 +209,18 @@ export default function CertifiedPayrollPage() {
 
   async function exportPdf() {
     const site = sites.find((s) => s.id === selectedSite);
+    // QA: append ?flatten=false to the Certified Payroll URL for an editable PDF.
+    const flattenParam = new URLSearchParams(window.location.search).get('flatten');
+    const flatten = flattenParam == null ? true : flattenParam !== 'false';
+
     const { blob, filename } = await apiPostDownload(
       '/api/certified-payroll/export',
-      { jobSiteId: selectedSite, weekEndingDate, payPeriodId: selectedPayPeriodId },
+      {
+        jobSiteId: selectedSite,
+        weekEndingDate,
+        payPeriodId: selectedPayPeriodId,
+        flatten,
+      },
       token
     );
     const downloadName = filename || `WH347-${site?.job_code || 'site'}-${weekEndingDate}.pdf`;

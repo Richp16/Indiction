@@ -1,7 +1,4 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
-const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
 const {
@@ -16,6 +13,8 @@ const {
   mergeBiweeklySupplementFields,
 } = require('../services/certifiedPayrollService');
 const { fetchChecksForWorkers } = require('../services/paychexCheckData');
+const { fillWh347Form } = require('../services/wh347FormFill');
+const { buildWh347PdfLegacy } = require('../services/wh347PdfLegacy');
 
 const router = express.Router();
 router.use(requireRole('system_admin', 'payroll_admin'));
@@ -23,6 +22,85 @@ router.use(requireRole('system_admin', 'payroll_admin'));
 function dayKey(dateStr) {
   const date = new Date(`${dateStr}T12:00:00`);
   return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()];
+}
+
+/**
+ * Feature flag: USE_NEW_WH347_EXPORT (default true).
+ * Set to 0/false/off to roll back to buildWh347PdfLegacy without a code change.
+ */
+function useNewWh347Export() {
+  const raw = process.env.USE_NEW_WH347_EXPORT;
+  if (raw == null || raw === '') return true;
+  return !['0', 'false', 'no', 'off'].includes(String(raw).trim().toLowerCase());
+}
+
+function parseFlattenFlag(req) {
+  const raw =
+    req.body?.flatten ??
+    req.query?.flatten ??
+    req.body?.flattenPdf ??
+    req.query?.flattenPdf;
+  if (raw == null || raw === '') return true;
+  return !['0', 'false', 'no', 'off'].includes(String(raw).trim().toLowerCase());
+}
+
+function buildWorkersFromHours(hoursRows) {
+  const byWorker = new Map();
+  for (const row of hoursRows) {
+    const workerId = row.id;
+    if (!byWorker.has(workerId)) {
+      byWorker.set(workerId, {
+        id: workerId,
+        first_name: row.first_name || '',
+        last_name: row.last_name || '',
+        worker_type: row.worker_type || 'J',
+        identifying_number: row.identifying_number || '',
+        labor_classification: row.labor_classification || '',
+        pay_rate: Number(row.pay_rate) || 0,
+        days: {
+          mon: { st: 0, ot: 0 },
+          tue: { st: 0, ot: 0 },
+          wed: { st: 0, ot: 0 },
+          thu: { st: 0, ot: 0 },
+          fri: { st: 0, ot: 0 },
+          sat: { st: 0, ot: 0 },
+          sun: { st: 0, ot: 0 },
+        },
+      });
+    }
+    const worker = byWorker.get(workerId);
+    const key = dayKey(row.entry_date);
+    const isOt = ['OT', 'OVERTIME', 'Overtime'].includes(row.paychex_component_id);
+    worker.days[key][isOt ? 'ot' : 'st'] += Number(row.hours) || 0;
+  }
+  return [...byWorker.values()];
+}
+
+function buildSupplementsByWorker(supplementRows, weekEndingDate) {
+  const supplementsByWorker = new Map();
+  for (const row of supplementRows) {
+    const workerId = row.worker_id;
+    const existing = supplementsByWorker.get(workerId);
+    if (!existing) {
+      supplementsByWorker.set(workerId, row);
+      continue;
+    }
+    const selectedDate = String(weekEndingDate).split('T')[0];
+    const existingDate = String(existing.week_ending_date).split('T')[0];
+    const rowDate = String(row.week_ending_date).split('T')[0];
+    const primary = rowDate === selectedDate ? row : existingDate === selectedDate ? existing : row;
+    const fallback = primary === row ? existing : row;
+    supplementsByWorker.set(workerId, mergeBiweeklySupplementFields(primary, fallback));
+  }
+  return supplementsByWorker;
+}
+
+function pickWageDetermination(site, supplementsByWorker) {
+  if (site?.wage_determination_no) return site.wage_determination_no;
+  for (const row of supplementsByWorker.values()) {
+    if (row?.wage_determination_no) return row.wage_determination_no;
+  }
+  return null;
 }
 
 router.get('/pay-periods', async (_req, res) => {
@@ -245,127 +323,45 @@ router.post('/export', async (req, res) => {
     const site = siteResult.rows[0];
     if (!site) return res.status(404).json({ message: 'Job site not found' });
 
-    const templatePath = fs.existsSync(path.join(__dirname, '../assets/wh347.pdf'))
-      ? path.join(__dirname, '../assets/wh347.pdf')
-      : path.join(__dirname, '../assets/WH-347.pdf');
-    if (!fs.existsSync(templatePath)) {
-      return res.status(500).json({ message: 'Place WH-347 template at backend/assets/wh347.pdf' });
-    }
-
-    const templateBytes = fs.readFileSync(templatePath);
-    const templateDoc = await PDFDocument.load(templateBytes);
-    const outDoc = await PDFDocument.create();
-    const font = await outDoc.embedFont(StandardFonts.Helvetica);
-    const black = rgb(0, 0, 0);
-
-    const byWorker = new Map();
-    for (const row of hoursRows) {
-      const workerId = row.id;
-      if (!byWorker.has(workerId)) {
-        byWorker.set(workerId, {
-          id: workerId,
-          first_name: row.first_name || '',
-          last_name: row.last_name || '',
-          worker_type: row.worker_type || 'J',
-          identifying_number: row.identifying_number || '',
-          labor_classification: row.labor_classification || '',
-          pay_rate: Number(row.pay_rate) || 0,
-          days: { mon: { st: 0, ot: 0 }, tue: { st: 0, ot: 0 }, wed: { st: 0, ot: 0 }, thu: { st: 0, ot: 0 }, fri: { st: 0, ot: 0 }, sat: { st: 0, ot: 0 }, sun: { st: 0, ot: 0 } },
-        });
-      }
-      const worker = byWorker.get(workerId);
-      const key = dayKey(row.entry_date);
-      const isOt = ['OT', 'OVERTIME', 'Overtime'].includes(row.paychex_component_id);
-      worker.days[key][isOt ? 'ot' : 'st'] += Number(row.hours) || 0;
-    }
-
-    const supplementsByWorker = new Map();
-    for (const row of supplementsResult.rows) {
-      const workerId = row.worker_id;
-      const existing = supplementsByWorker.get(workerId);
-      if (!existing) {
-        supplementsByWorker.set(workerId, row);
-        continue;
-      }
-      const selectedDate = String(weekEndingDate).split('T')[0];
-      const existingDate = String(existing.week_ending_date).split('T')[0];
-      const rowDate = String(row.week_ending_date).split('T')[0];
-      const primary = rowDate === selectedDate ? row : existingDate === selectedDate ? existing : row;
-      const fallback = primary === row ? existing : row;
-      supplementsByWorker.set(workerId, mergeBiweeklySupplementFields(primary, fallback));
-    }
-    const workers = [...byWorker.values()];
+    const workers = buildWorkersFromHours(hoursRows);
+    const supplementsByWorker = buildSupplementsByWorker(supplementsResult.rows, weekEndingDate);
     const payrollNumber = (site.certified_payroll_count || 0) + 1;
+    const flatten = parseFlattenFlag(req);
+    const useNew = useNewWh347Export();
 
-    const pageCount = Math.max(1, Math.ceil(workers.length / 8));
-    for (let i = 0; i < pageCount; i += 1) {
-      const [page] = await outDoc.copyPages(templateDoc, [0]);
-      outDoc.addPage(page);
-      if (i === 0 && templateDoc.getPageCount() > 1) {
-        const [statement] = await outDoc.copyPages(templateDoc, [1]);
-        outDoc.addPage(statement);
-      }
-      console.log(page.getWidth(), page.getHeight());
-
-      const batch = workers.slice(i * 8, i * 8 + 8);
-      page.drawText(site.name || '', { x: 160, y: 714, size: 7, font, color: black });
-      page.drawText(site.contract_number || '', { x: 355, y: 714, size: 7, font, color: black });
-      page.drawText(String(payrollNumber), { x: 510, y: 714, size: 7, font, color: black });
-      page.drawText(company.company_name || '', { x: 160, y: 699, size: 7, font, color: black });
-      page.drawText(site.address || '', { x: 160, y: 684, size: 7, font, color: black });
-      page.drawText(weekEndingDate, { x: 510, y: 684, size: 7, font, color: black });
-      page.drawText(company.company_address || '', { x: 160, y: 669, size: 7, font, color: black });
-
-      batch.forEach((worker, idx) => {
-        const supplement = supplementsByWorker.get(worker.id) || {};
-        const baseY = 638 - idx * 28;
-        const otY = baseY - 12;
-        const totalSt = Object.values(worker.days).reduce((acc, d) => acc + d.st, 0);
-        const totalOt = Object.values(worker.days).reduce((acc, d) => acc + d.ot, 0);
-        const grossThisJob = totalSt * worker.pay_rate + totalOt * worker.pay_rate * 1.5;
-        const totalDeductions =
-          Number(supplement.deduction_withholding || 0) +
-          Number(supplement.deduction_fica || 0) +
-          Number(supplement.deduction_other || 0);
-
-        page.drawText(String(i * 8 + idx + 1), { x: 18, y: baseY, size: 7, font, color: black });
-        page.drawText(worker.last_name, { x: 34, y: baseY, size: 7, font, color: black });
-        page.drawText(worker.first_name, { x: 82, y: baseY, size: 7, font, color: black });
-        page.drawText(String(supplement.paychex_worker_number || worker.identifying_number || ''), { x: 152, y: baseY, size: 7, font, color: black });
-        page.drawText(worker.worker_type, { x: 190, y: baseY, size: 7, font, color: black });
-        page.drawText(worker.labor_classification, { x: 200, y: baseY, size: worker.labor_classification.length > 20 ? 6 : 7, font, color: black });
-        const dayXs = { mon: 268, tue: 290, wed: 312, thu: 334, fri: 356, sat: 378, sun: 400 };
-        Object.entries(dayXs).forEach(([k, x]) => {
-          page.drawText(String(worker.days[k].st || ''), { x, y: baseY, size: 7, font, color: black });
-          page.drawText(String(worker.days[k].ot || ''), { x, y: otY, size: 7, font, color: black });
-        });
-        page.drawText(totalSt.toFixed(2), { x: 424, y: baseY, size: 7, font, color: black });
-        page.drawText(totalOt.toFixed(2), { x: 424, y: otY, size: 7, font, color: black });
-        page.drawText(worker.pay_rate.toFixed(2), { x: 442, y: baseY, size: 7, font, color: black });
-        page.drawText(String(supplement.fringe_benefit_credit || ''), { x: 460, y: baseY, size: 7, font, color: black });
-        page.drawText(String(supplement.fringe_paid_in_lieu || ''), { x: 474, y: baseY, size: 7, font, color: black });
-        page.drawText(grossThisJob.toFixed(2), { x: 488, y: baseY, size: 7, font, color: black });
-        page.drawText(String(supplement.gross_earned_all_work || ''), { x: 504, y: baseY, size: 7, font, color: black });
-        page.drawText(String(supplement.deduction_withholding || ''), { x: 520, y: baseY, size: 7, font, color: black });
-        page.drawText(String(supplement.deduction_fica || ''), { x: 536, y: baseY, size: 7, font, color: black });
-        page.drawText(String(supplement.deduction_other_label || ''), { x: 548, y: baseY, size: 5, font, color: black });
-        page.drawText(String(supplement.deduction_other || ''), { x: 550, y: otY, size: 7, font, color: black });
-        page.drawText(totalDeductions.toFixed(2), { x: 562, y: baseY, size: 7, font, color: black });
-        page.drawText(String(supplement.net_pay || ''), { x: 578, y: baseY, size: 7, font, color: black });
+    let pdfBuffer;
+    if (useNew) {
+      console.log(
+        `[certified-payroll/export] path=new-acroform workers=${workers.length} flatten=${flatten}`
+      );
+      pdfBuffer = await fillWh347Form({
+        project: {
+          name: site.name,
+          contract_number: site.contract_number,
+          address: site.address,
+          wage_determination_no: pickWageDetermination(site, supplementsByWorker),
+        },
+        company,
+        weekEndingDate,
+        payrollNumber,
+        workers,
+        supplementsByWorker,
+        flatten,
+        isPrime: true,
+        isFinal: Boolean(req.body?.isFinal),
       });
-    }
-
-    if (outDoc.getPageCount() > 1) {
-      const statement = outDoc.getPage(outDoc.getPageCount() - 1);
-      statement.drawText(site.name || '', { x: 160, y: 714, size: 7, font, color: black });
-      statement.drawText(site.contract_number || '', { x: 355, y: 714, size: 7, font, color: black });
-      statement.drawText(String(payrollNumber), { x: 510, y: 714, size: 7, font, color: black });
-      statement.drawText(company.company_name || '', { x: 160, y: 699, size: 7, font, color: black });
-      statement.drawText(site.address || '', { x: 160, y: 684, size: 7, font, color: black });
-      statement.drawText(weekEndingDate, { x: 510, y: 684, size: 7, font, color: black });
-      statement.drawText(`${company.certifying_official_name || ''} ${company.certifying_official_title || ''}`.trim(), { x: 160, y: 100, size: 7, font, color: black });
-      statement.drawText(company.phone || '', { x: 160, y: 88, size: 7, font, color: black });
-      statement.drawText(company.email || '', { x: 300, y: 88, size: 7, font, color: black });
+    } else {
+      console.log(
+        `[certified-payroll/export] path=legacy-drawText workers=${workers.length}`
+      );
+      pdfBuffer = await buildWh347PdfLegacy({
+        site,
+        company,
+        weekEndingDate,
+        payrollNumber,
+        workers,
+        supplementsByWorker,
+      });
     }
 
     await query(
@@ -380,9 +376,10 @@ router.post('/export', async (req, res) => {
       'Content-Disposition',
       `attachment; filename="WH347-${site.job_code}-${weekEndingDate}.pdf"`
     );
-    res.send(Buffer.from(await outDoc.save()));
+    res.send(pdfBuffer);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('[certified-payroll/export]', error.message);
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 });
 
