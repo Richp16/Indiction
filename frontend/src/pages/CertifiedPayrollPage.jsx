@@ -151,7 +151,6 @@ export default function CertifiedPayrollPage() {
     setReconciliationWarnings,
     payrollDebug,
     setPayrollDebug,
-    checksPreview,
     checksError,
     checksErrorDebug,
     isLoadingPageData,
@@ -471,7 +470,7 @@ export default function CertifiedPayrollPage() {
         </button>
       </div>
 
-      {(checksPreview || checksError) && (
+      {(checksError) && (
         <div
           style={{
             marginBottom: '1rem',
@@ -483,37 +482,16 @@ export default function CertifiedPayrollPage() {
           }}
           data-testid="checks-preview"
         >
-          {checksError ? (
-            <>
-              <p style={{ margin: 0, color: 'crimson' }}>{checksError}</p>
-              {import.meta.env.DEV && checksErrorDebug && (
-                <p
-                  style={{ margin: '0.35rem 0 0', color: '#64748b', fontSize: 12 }}
-                  data-testid="checks-error-debug"
-                >
-                  debug: companyId={checksErrorDebug.companyId ?? '—'} · payPeriodId=
-                  {checksErrorDebug.payPeriodId ?? '—'} · HTTP {checksErrorDebug.status ?? '—'} ·
-                  code={checksErrorDebug.errorCode ?? '—'}
-                </p>
-              )}
-            </>
-          ) : (
-            <>
-              <p style={{ margin: '0 0 0.5rem' }}>
-                {checksPreview.count} company check(s) loaded for period{' '}
-                <code>{checksPreview.payPeriodId}</code>
-              </p>
-              {checksPreview.workers?.length > 0 && (
-                <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
-                  {checksPreview.workers.map((worker) => (
-                    <li key={`${worker.workerId}-${worker.paycheckId}`}>
-                      {worker.workerId}: net {worker.netPay ?? '—'}
-                      {worker.paycheckId ? ` (${worker.paycheckId})` : ''}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
+          <p style={{ margin: 0, color: 'crimson' }}>{checksError}</p>
+          {import.meta.env.DEV && checksErrorDebug && (
+            <p
+              style={{ margin: '0.35rem 0 0', color: '#64748b', fontSize: 12 }}
+              data-testid="checks-error-debug"
+            >
+              debug: companyId={checksErrorDebug.companyId ?? '—'} · payPeriodId=
+              {checksErrorDebug.payPeriodId ?? '—'} · HTTP {checksErrorDebug.status ?? '—'} ·
+              code={checksErrorDebug.errorCode ?? '—'}
+            </p>
           )}
         </div>
       )}

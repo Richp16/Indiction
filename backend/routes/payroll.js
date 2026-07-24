@@ -6,6 +6,7 @@ const {
   validateSpiRows,
   stripMetadata,
   deletePayrollRow,
+  sumRowHours,
 } = require('../services/paychexExport');
 const {
   listPayrollPayPeriods,
@@ -19,10 +20,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function sumExportHours(rows) {
-  return rows.reduce((total, row) => {
-    const hours = Number(row.Hours);
-    return total + (Number.isFinite(hours) ? hours : 0);
-  }, 0);
+  return rows.reduce((total, row) => total + sumRowHours(row), 0);
 }
 
 router.get('/pay-periods', requireAuth, async (_req, res) => {
@@ -140,16 +138,13 @@ router.get('/:payPeriodId/preview', requireAuth, async (req, res) => {
 router.delete('/:payPeriodId/row', requireRole('payroll_admin', 'system_admin'), async (req, res) => {
   try {
     const { payPeriodId } = req.params;
-    const { workerDbId, jobSiteId, payComponent } = req.body;
+    const { workerDbId, jobSiteId } = req.body;
 
     if (!payPeriodId || !UUID_RE.test(payPeriodId)) {
       return res.status(400).json({ message: 'Invalid pay period ID' });
     }
     if (!workerDbId || !UUID_RE.test(workerDbId)) {
       return res.status(400).json({ message: 'workerDbId is required' });
-    }
-    if (!payComponent || !String(payComponent).trim()) {
-      return res.status(400).json({ message: 'payComponent is required' });
     }
     if (jobSiteId != null && jobSiteId !== '' && !UUID_RE.test(jobSiteId)) {
       return res.status(400).json({ message: 'Invalid job site ID' });
@@ -159,7 +154,6 @@ router.delete('/:payPeriodId/row', requireRole('payroll_admin', 'system_admin'),
       payPeriodId,
       workerDbId,
       jobSiteId: jobSiteId || null,
-      payComponent: String(payComponent).trim(),
     });
 
     if (deletedCount === 0) {

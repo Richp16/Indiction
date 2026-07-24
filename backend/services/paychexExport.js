@@ -1,30 +1,50 @@
 const { query } = require('../db');
-const { mapPayCodeToPaychexComponent, mapPaychexComponentToPayCode } = require('../config/payCodeMapping');
 
+/**
+ * SPI / payroll export columns (one row per worker × job).
+ * Hourly and Overtime are pivoted into columns — not separate pay-component rows.
+ */
 const EXPORT_CSV_HEADERS = [
-  'Company ID',
-  'Worker ID',
-  'Employee Name',
-  'Job Number',
-  'Job Name',
-  'Pay Component',
-  'Hours',
+  'Name',
+  'Employee ID',
+  'Total Amount',
+  'Job',
+  'Hourly Hours',
+  'Hourly Rate',
+  'Overtime Hours',
+  'Reimbursement Amount',
+  'Short Pay Amount',
 ];
 
-const HOURS_PAY_CODES = new Set(['REGULAR', 'OT', 'PTO', 'HOURLY', 'OVERTIME', 'DOUBLETIME']);
+const OT_EARNINGS_MULTIPLIER = 1.5;
+const DT_EARNINGS_MULTIPLIER = 2;
+
+/** FOLLOW-UP: no Short Pay data source in FieldPay yet — export defaults to 0.00. */
+const SHORT_PAY_SOURCE_NOTE =
+  'Short Pay Amount has no data source yet; rows default to 0.00 until a source is wired.';
 
 const AGGREGATION_SQL = `
 SELECT
   w.id                                   AS worker_db_id,
   TRIM(w.first_name || ' ' || w.last_name) AS worker_name,
   w.employee_code                          AS worker_id,
+  w.standard_rate                          AS hourly_rate,
   te.job_site_id,
   js.job_code                              AS job_number,
   js.name                                  AS job_name,
-  te.paychex_component_id                  AS pay_component,
-  SUM(te.hours)                            AS hours,
-  SUM(te.reimbursement_amount)             AS amount,
-  MAX(te.component_name)                   AS component_name,
+  COALESCE(SUM(CASE
+    WHEN UPPER(te.paychex_component_id::text) IN ('REGULAR', 'HOURLY')
+    THEN te.hours ELSE 0 END), 0)          AS hourly_hours,
+  COALESCE(SUM(CASE
+    WHEN UPPER(te.paychex_component_id::text) IN ('OT', 'OVERTIME')
+    THEN te.hours ELSE 0 END), 0)          AS overtime_hours,
+  COALESCE(SUM(CASE
+    WHEN UPPER(te.paychex_component_id::text) IN ('DT', 'DOUBLETIME')
+    THEN te.hours ELSE 0 END), 0)          AS doubletime_hours,
+  COALESCE(SUM(CASE
+    WHEN UPPER(te.paychex_component_id::text) IN ('PTO', 'VACATION', 'SICK')
+    THEN te.hours ELSE 0 END), 0)          AS pto_hours,
+  COALESCE(SUM(te.reimbursement_amount), 0) AS reimbursement_amount,
   pp.start_date::text                      AS start_date,
   pp.end_date::text                        AS end_date
 FROM time_entries te
@@ -38,17 +58,16 @@ GROUP BY
   w.first_name,
   w.last_name,
   w.employee_code,
+  w.standard_rate,
   te.job_site_id,
   js.job_code,
   js.name,
-  te.paychex_component_id,
   pp.start_date,
   pp.end_date
 ORDER BY
   w.last_name,
   w.first_name,
-  COALESCE(js.name, 'General'),
-  te.paychex_component_id
+  COALESCE(js.name, 'No Job Assigned')
 `;
 
 function formatDate(dateStr) {
@@ -76,54 +95,65 @@ function escapeCsvField(value, { forceQuote = false } = {}) {
   return str;
 }
 
-function resolvePayComponentName(payCode, componentName) {
-  switch (payCode) {
-    case 'REGULAR':
-    case 'HOURLY':
-      return process.env.PAYCHEX_REGULAR_COMPONENT_NAME || 'Regular';
-    case 'OT':
-    case 'OVERTIME':
-      return process.env.PAYCHEX_OT_COMPONENT_NAME || 'Overtime';
-    case 'DT':
-    case 'DOUBLETIME':
-      return process.env.PAYCHEX_DT_COMPONENT_NAME || 'Double Time';
-    case 'PTO':
-      return process.env.PAYCHEX_PTO_COMPONENT_NAME || 'PTO';
-    case 'REIMBURSE':
-      return (
-        componentName ||
-        process.env.PAYCHEX_REIMBURSE_COMPONENT_NAME ||
-        'Reimbursement'
-      );
-    default:
-      return componentName || '';
-  }
+function parseNumericField(value) {
+  if (value == null || value === '') return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function isHoursPayCode(payCode) {
-  return HOURS_PAY_CODES.has(payCode);
+function formatHours(value) {
+  return parseNumericField(value).toFixed(1);
 }
 
-function isReimbursementPayCode(payCode) {
-  return payCode === 'REIMBURSE';
+function formatMoney(value) {
+  return parseNumericField(value).toFixed(2);
+}
+
+/**
+ * Wage total only (excludes reimbursement / short pay), matching the target sheet.
+ * PTO is straight time; double-time uses 2× for earnings while hours roll into Overtime Hours.
+ */
+function computeTotalAmount({
+  hourlyHours = 0,
+  overtimeHours = 0,
+  doubletimeHours = 0,
+  ptoHours = 0,
+  hourlyRate = 0,
+} = {}) {
+  const rate = parseNumericField(hourlyRate);
+  return (
+    parseNumericField(hourlyHours) * rate +
+    parseNumericField(ptoHours) * rate +
+    parseNumericField(overtimeHours) * rate * OT_EARNINGS_MULTIPLIER +
+    parseNumericField(doubletimeHours) * rate * DT_EARNINGS_MULTIPLIER
+  );
+}
+
+/** Display Hourly Hours includes PTO so period hour totals still reconcile. */
+function displayHourlyHours(agg) {
+  return parseNumericField(agg.hourly_hours) + parseNumericField(agg.pto_hours);
+}
+
+/** Display Overtime Hours includes double-time hours for the same reason. */
+function displayOvertimeHours(agg) {
+  return parseNumericField(agg.overtime_hours) + parseNumericField(agg.doubletime_hours);
 }
 
 function stripMetadata(row) {
   const cleaned = { ...row };
   delete cleaned._employeeName;
   delete cleaned._jobName;
-  delete cleaned._payCode;
+  delete cleaned._jobNumber;
   delete cleaned._workerDbId;
   delete cleaned._jobSiteId;
   delete cleaned._payPeriodId;
+  delete cleaned._hourlyHoursRaw;
+  delete cleaned._overtimeHoursRaw;
+  delete cleaned._doubletimeHours;
+  delete cleaned._ptoHours;
+  delete cleaned._rateMissing;
   delete cleaned.worker_id;
   return cleaned;
-}
-
-function parseNumericField(value) {
-  if (value == null || value === '') return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function validateSpiRows(rows) {
@@ -131,22 +161,22 @@ function validateSpiRows(rows) {
 
   rows.forEach((row, index) => {
     const cleaned = stripMetadata(row);
-    const companyId = cleaned['Company ID'];
-    const workerId = cleaned.worker_id ?? cleaned['Worker ID'];
-    const payComponent = cleaned['Pay Component'];
-    const hours = parseNumericField(cleaned.Hours);
+    const employeeId = cleaned['Employee ID'] ?? cleaned.worker_id;
+    const name = cleaned.Name;
+    const hourlyHours = parseNumericField(cleaned['Hourly Hours']);
+    const overtimeHours = parseNumericField(cleaned['Overtime Hours']);
 
-    if (!companyId || String(companyId).trim() === '') {
-      errors.push({ row: index, reason: 'Company ID is required' });
+    if (!name || String(name).trim() === '') {
+      errors.push({ row: index, reason: 'Name is required' });
     }
-    if (!workerId || String(workerId).trim() === '') {
-      errors.push({ row: index, reason: 'Worker ID is required' });
+    if (!employeeId || String(employeeId).trim() === '') {
+      errors.push({ row: index, reason: 'Employee ID is required' });
     }
-    if (!payComponent || String(payComponent).trim() === '') {
-      errors.push({ row: index, reason: 'Pay Component is required' });
+    if (hourlyHours < 0 || overtimeHours < 0) {
+      errors.push({ row: index, reason: 'Hours cannot be negative' });
     }
-    if (hours <= 0) {
-      errors.push({ row: index, reason: 'Hours must be greater than 0' });
+    if (hourlyHours + overtimeHours <= 0 && parseNumericField(cleaned['Reimbursement Amount']) <= 0) {
+      errors.push({ row: index, reason: 'Row must have hours or a reimbursement amount' });
     }
   });
 
@@ -180,48 +210,67 @@ async function generateSPIRows(payPeriodId) {
   const rows = [];
 
   for (const agg of aggResult.rows) {
-    const payCode = agg.pay_component;
-    const payComponentName = resolvePayComponentName(payCode, agg.component_name);
-    const totalHours = parseFloat(agg.hours) || 0;
-    const jobNumber = agg.job_number ? String(agg.job_number) : '';
+    const hourlyRaw = parseNumericField(agg.hourly_hours);
+    const overtimeRaw = parseNumericField(agg.overtime_hours);
+    const doubletimeRaw = parseNumericField(agg.doubletime_hours);
+    const ptoRaw = parseNumericField(agg.pto_hours);
+    const hourlyHours = displayHourlyHours(agg);
+    const overtimeHours = displayOvertimeHours(agg);
+    const reimbursement = parseNumericField(agg.reimbursement_amount);
+    const rateRaw = agg.hourly_rate;
+    const rateMissing = rateRaw == null || rateRaw === '' || !Number.isFinite(Number(rateRaw));
+    const hourlyRate = rateMissing ? 0 : parseNumericField(rateRaw);
+    const jobName = agg.job_name || 'No Job Assigned';
+    const workerId = agg.worker_id != null ? String(agg.worker_id) : '';
 
-    if (totalHours <= 0) {
+    if (hourlyHours + overtimeHours <= 0 && reimbursement <= 0) {
       continue;
     }
 
-    if (!payComponentName || !payComponentName.trim()) {
-      warnings.push({
-        type: 'error',
-        message: `Skipped ${agg.worker_name} at ${agg.job_name || 'unknown job'}: Pay Component name is blank`,
-      });
-      continue;
-    }
-
-    if (!jobNumber) {
-      console.warn(`[paychexExport] Missing job number for ${agg.worker_name} at ${agg.job_name}`);
+    if (rateMissing && hourlyHours + overtimeHours > 0) {
       warnings.push({
         type: 'warning',
-        message: `Missing Job Number for ${agg.worker_name} at ${agg.job_name || 'unknown job'}`,
+        message: `Missing Hourly Rate for ${agg.worker_name} at ${jobName} — Total Amount uses $0.00 until workers.standard_rate is set`,
       });
     }
 
-    const workerId = agg.worker_id != null ? String(agg.worker_id) : '';
+    if (!agg.job_number) {
+      warnings.push({
+        type: 'warning',
+        message: `Missing Job Number for ${agg.worker_name} at ${jobName}`,
+      });
+    }
+
+    const totalAmount = computeTotalAmount({
+      hourlyHours: hourlyRaw,
+      overtimeHours: overtimeRaw,
+      doubletimeHours: doubletimeRaw,
+      ptoHours: ptoRaw,
+      hourlyRate,
+    });
 
     rows.push({
       worker_id: workerId,
-      'Company ID': clientCode,
-      'Worker ID': workerId,
-      'Employee Name': agg.worker_name,
-      'Job Number': jobNumber,
-      'Job Name': agg.job_name || 'General',
-      'Pay Component': payComponentName,
-      Hours: totalHours.toFixed(2),
+      Name: agg.worker_name,
+      'Employee ID': workerId,
+      'Total Amount': formatMoney(totalAmount),
+      Job: jobName,
+      'Hourly Hours': formatHours(hourlyHours),
+      'Hourly Rate': formatMoney(hourlyRate),
+      'Overtime Hours': formatHours(overtimeHours),
+      'Reimbursement Amount': formatMoney(reimbursement),
+      'Short Pay Amount': formatMoney(0),
       _employeeName: agg.worker_name,
-      _jobName: agg.job_name || 'General',
-      _payCode: payCode,
+      _jobName: jobName,
+      _jobNumber: agg.job_number ? String(agg.job_number) : '',
       _workerDbId: agg.worker_db_id,
       _jobSiteId: agg.job_site_id,
       _payPeriodId: payPeriodId,
+      _hourlyHoursRaw: hourlyRaw,
+      _overtimeHoursRaw: overtimeRaw,
+      _doubletimeHours: doubletimeRaw,
+      _ptoHours: ptoRaw,
+      _rateMissing: rateMissing,
     });
   }
 
@@ -246,9 +295,6 @@ function generateSPICSV(rows, clientCode) {
     const cleaned = stripMetadata(row);
     const fields = EXPORT_CSV_HEADERS.map((header) => {
       const value = cleaned[header] ?? '';
-      if (header === 'Job Number') {
-        return escapeCsvField(value, { forceQuote: true });
-      }
       return escapeCsvField(value);
     });
     lines.push(fields.join(','));
@@ -258,7 +304,11 @@ function generateSPICSV(rows, clientCode) {
   return { csvString, filename };
 }
 
-async function deletePayrollRow({ payPeriodId, workerDbId, jobSiteId, payComponent }) {
+/**
+ * Delete all daily + aggregated time entries for a worker × job in the period
+ * (all pay components — matches one export row).
+ */
+async function deletePayrollRow({ payPeriodId, workerDbId, jobSiteId }) {
   const periodResult = await query('SELECT status FROM pay_periods WHERE id = $1', [payPeriodId]);
   if (periodResult.rows.length === 0) {
     const error = new Error('Pay period not found');
@@ -271,44 +321,53 @@ async function deletePayrollRow({ payPeriodId, workerDbId, jobSiteId, payCompone
     throw error;
   }
 
-  const internalPayCode = mapPaychexComponentToPayCode(payComponent);
-  const aggregatedComponentId = mapPayCodeToPaychexComponent(internalPayCode);
-
   await query(
     `DELETE FROM daily_time_entries
      WHERE pay_period_id = $1
        AND worker_id = $2
-       AND pay_code = $3
        AND (
-         ($4::uuid IS NULL AND job_site_id IS NULL)
-         OR job_site_id = $4::uuid
+         ($3::uuid IS NULL AND job_site_id IS NULL)
+         OR job_site_id = $3::uuid
        )`,
-    [payPeriodId, workerDbId, internalPayCode, jobSiteId || null]
+    [payPeriodId, workerDbId, jobSiteId || null]
   );
 
   const result = await query(
     `DELETE FROM time_entries
      WHERE pay_period_id = $1
        AND worker_id = $2
-       AND paychex_component_id = $3
        AND (
-         ($4::uuid IS NULL AND job_site_id IS NULL)
-         OR job_site_id = $4::uuid
+         ($3::uuid IS NULL AND job_site_id IS NULL)
+         OR job_site_id = $3::uuid
        )
      RETURNING id`,
-    [payPeriodId, workerDbId, aggregatedComponentId, jobSiteId || null]
+    [payPeriodId, workerDbId, jobSiteId || null]
   );
 
   return result.rowCount;
 }
 
+function sumRowHours(row) {
+  return parseNumericField(row['Hourly Hours']) + parseNumericField(row['Overtime Hours']);
+}
+
 module.exports = {
   EXPORT_CSV_HEADERS,
+  OT_EARNINGS_MULTIPLIER,
+  DT_EARNINGS_MULTIPLIER,
+  SHORT_PAY_SOURCE_NOTE,
   formatDate,
   escapeCsvField,
+  formatHours,
+  formatMoney,
+  computeTotalAmount,
+  displayHourlyHours,
+  displayOvertimeHours,
   generateSPIRows,
   generateSPICSV,
   validateSpiRows,
   stripMetadata,
   deletePayrollRow,
+  sumRowHours,
+  parseNumericField,
 };

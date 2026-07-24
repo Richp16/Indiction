@@ -328,16 +328,15 @@ describe('CertifiedPayrollPage loading states', () => {
     });
   });
 
-  it('loads company checks preview for the selected Paychex period', async () => {
+  it('does not show the raw company-checks debug list on success', async () => {
     render(<CertifiedPayrollPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('checks-preview')).toBeInTheDocument();
+      expect(screen.getByText('Daily Hour Log')).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('checks-preview')).toHaveTextContent(
-      '37 company check(s) loaded'
-    );
+    expect(screen.queryByText(/company check\(s\) loaded/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('checks-preview')).not.toBeInTheDocument();
   });
 
   it('keeps hour log visible when company checks return a Paychex server error', async () => {
