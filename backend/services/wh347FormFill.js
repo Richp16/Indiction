@@ -123,6 +123,49 @@ function truncateToWidth(font, text, fontSize, maxWidth) {
 }
 
 /**
+ * Round to one decimal place (e.g. 6.34 → 6.3).
+ */
+function roundFontSize(size) {
+  return Math.round(size * 10) / 10;
+}
+
+/**
+ * Best-fit font size for a field: proportional jump + 0.1pt climb/shrink
+ * so short numeric values use the largest size that still fits.
+ *
+ * @returns {number}
+ */
+function findBestFitFontSize(font, display, startSize, usableWidth, usableHeight, minFontSize, maxFontSize) {
+  let size = startSize;
+  const widthAtStart = font.widthOfTextAtSize(display, size);
+
+  if (widthAtStart > usableWidth && widthAtStart > 0) {
+    // Proportional jump toward the largest size that should fit, then refine.
+    const proportionalSize = (usableWidth / widthAtStart) * size;
+    size = roundFontSize(
+      Math.min(maxFontSize, Math.max(minFontSize, proportionalSize))
+    );
+  }
+
+  // Climb in 0.1pt steps while the next size still fits width and height.
+  while (
+    size + 0.1 <= usableHeight + 1e-9 &&
+    size + 0.1 <= maxFontSize + 1e-9 &&
+    font.widthOfTextAtSize(display, size + 0.1) <= usableWidth
+  ) {
+    size = roundFontSize(size + 0.1);
+  }
+
+  // Safety shrink if still too wide (never below minFontSize).
+  while (size > minFontSize && font.widthOfTextAtSize(display, size) > usableWidth) {
+    size = roundFontSize(size - 0.1);
+  }
+  size = Math.max(minFontSize, size);
+
+  return size;
+}
+
+/**
  * Shrink text to fit a PDF text field's widget box (Adobe-like auto size).
  *
  * 1. Sets font size 0 first (viewer auto-size when unflattened).
@@ -182,11 +225,15 @@ function fitTextToField(pdfDoc, field, text, options = {}) {
     size = Math.min(maxFontSize, usableHeight);
 
     if (font) {
-      // Shrink only while the text is wider than the field.
-      while (size > minFontSize && font.widthOfTextAtSize(display, size) > usableWidth) {
-        size = Math.round((size - 0.5) * 10) / 10;
-      }
-      size = Math.max(minFontSize, size);
+      size = findBestFitFontSize(
+        font,
+        display,
+        size,
+        usableWidth,
+        usableHeight,
+        minFontSize,
+        maxFontSize
+      );
 
       if (font.widthOfTextAtSize(display, size) > usableWidth) {
         const fitted = truncateToWidth(font, display, size, usableWidth);
