@@ -12,6 +12,7 @@ const {
   resolvePayPeriodContext,
   mergeBiweeklySupplementFields,
   toWh347WorkerType,
+  isSupervisorClassification,
 } = require('../services/certifiedPayrollService');
 const { fetchChecksForWorkers } = require('../services/paychexCheckData');
 const { fillWh347Form } = require('../services/wh347FormFill');
@@ -48,6 +49,8 @@ function parseFlattenFlag(req) {
 function buildWorkersFromHours(hoursRows) {
   const byWorker = new Map();
   for (const row of hoursRows) {
+    // Supervisors are not covered classifications — never on WH-347.
+    if (isSupervisorClassification(row.labor_classification)) continue;
     const workerId = row.id;
     if (!byWorker.has(workerId)) {
       byWorker.set(workerId, {

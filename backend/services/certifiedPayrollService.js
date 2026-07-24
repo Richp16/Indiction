@@ -201,9 +201,26 @@ function toWh347WorkerType(raw) {
   return 'J';
 }
 
+/** WH-347 FICA rate: 6.2% Social Security + 1.45% Medicare. */
+const WH347_FICA_RATE = 0.0765;
+
+/**
+ * WH-347 FICA is always 7.65% of gross for ALL WORK — Paychex-reported FICA is
+ * intentionally ignored on this form (agency reference calculates it this way).
+ */
+function computeWh347Fica(grossAllWork) {
+  return roundMoney((Number(grossAllWork) || 0) * WH347_FICA_RATE);
+}
+
+/** Supervisors are not covered classifications and never appear on WH-347. */
+function isSupervisorClassification(classification) {
+  return String(classification || '').trim().toLowerCase() === 'supervisor';
+}
+
 function groupWorkersFromHours(hoursRows) {
   const map = new Map();
   for (const row of hoursRows) {
+    if (isSupervisorClassification(row.labor_classification)) continue;
     if (!map.has(row.id)) {
       map.set(row.id, {
         workerId: row.id,
@@ -239,6 +256,10 @@ function buildSupplementFromPaychex({ checkData, site, worker, mapped = null }) 
   const other = mapped
     ? { amount: mapped.otherAmount, label: mapped.otherLabel }
     : mergeOtherDeductions(checkData.otherDeductions);
+  const grossAllWork = mapped?.grossAllWork ?? checkData.grossPay;
+  const withholding = mapped?.withholding ?? checkData.federalWithholding;
+  // WH-347 rule: FICA = 7.65% of gross ALL WORK, never Paychex's reported FICA.
+  const fica = computeWh347Fica(grossAllWork);
   return {
     worker_id: worker.workerId,
     worker_name: worker.workerName,
@@ -246,9 +267,9 @@ function buildSupplementFromPaychex({ checkData, site, worker, mapped = null }) 
     wage_determination_no: site?.wage_determination_no || '',
     fringe_benefit_credit: 0,
     fringe_paid_in_lieu: 0,
-    gross_earned_all_work: mapped?.grossAllWork ?? checkData.grossPay,
-    deduction_withholding: mapped?.withholding ?? checkData.federalWithholding,
-    deduction_fica: mapped?.fica ?? checkData.fica,
+    gross_earned_all_work: grossAllWork,
+    deduction_withholding: withholding,
+    deduction_fica: fica,
     deduction_other: other.amount,
     deduction_other_label: other.label,
     net_pay: mapped?.netPay ?? checkData.netPay,
@@ -256,7 +277,9 @@ function buildSupplementFromPaychex({ checkData, site, worker, mapped = null }) 
     source: 'paychex',
     paycheck_id: mapped?.paycheckId || null,
     paychex_check_worker_id: mapped?.workerId || null,
-    total_deductions: mapped?.totalDeductions ?? null,
+    total_deductions: roundMoney(
+      (Number(withholding) || 0) + fica + (Number(other.amount) || 0)
+    ),
   };
 }
 
@@ -273,7 +296,7 @@ function buildSupplementEstimate({ grossAllWork, site, worker }) {
     gross_earned_all_work: estimate.grossPay,
     // Federal withholding / net require Paychex checks or manual entry — leave blank.
     deduction_withholding: null,
-    deduction_fica: estimate.fica,
+    deduction_fica: computeWh347Fica(estimate.grossPay),
     deduction_other: other.amount,
     deduction_other_label: other.label,
     net_pay: null,
@@ -923,5 +946,7 @@ module.exports = {
   buildSupplementFromPaychex,
   groupWorkersFromHours,
   toWh347WorkerType,
+  computeWh347Fica,
+  isSupervisorClassification,
   roundMoney,
 };
