@@ -58,8 +58,8 @@ async function buildWh347PdfLegacy({
 
     const batch = workers.slice(i * 8, i * 8 + 8);
     page.drawText(site.name || '', { x: 160, y: 714, size: 7, font, color: black });
-    page.drawText(site.contract_number || '', { x: 355, y: 714, size: 7, font, color: black });
-    page.drawText(String(payrollNumber), { x: 510, y: 714, size: 7, font, color: black });
+    page.drawText(site.contract_number || site.job_code || '', { x: 355, y: 714, size: 7, font, color: black });
+    // CERTIFIED PAYROLL NO. left blank intentionally.
     page.drawText(company.company_name || '', { x: 160, y: 699, size: 7, font, color: black });
     page.drawText(site.address || '', { x: 160, y: 684, size: 7, font, color: black });
     page.drawText(weekEndingDate, { x: 510, y: 684, size: 7, font, color: black });
@@ -84,7 +84,7 @@ async function buildWh347PdfLegacy({
         String(supplement.paychex_worker_number || worker.identifying_number || ''),
         { x: 152, y: baseY, size: 7, font, color: black }
       );
-      page.drawText(worker.worker_type, { x: 190, y: baseY, size: 7, font, color: black });
+      page.drawText(worker.wh347WorkerType || 'J', { x: 190, y: baseY, size: 7, font, color: black });
       page.drawText(worker.labor_classification, {
         x: 200,
         y: baseY,
@@ -158,8 +158,8 @@ async function buildWh347PdfLegacy({
   if (outDoc.getPageCount() > 1) {
     const statement = outDoc.getPage(outDoc.getPageCount() - 1);
     statement.drawText(site.name || '', { x: 160, y: 714, size: 7, font, color: black });
-    statement.drawText(site.contract_number || '', { x: 355, y: 714, size: 7, font, color: black });
-    statement.drawText(String(payrollNumber), { x: 510, y: 714, size: 7, font, color: black });
+    statement.drawText(site.contract_number || site.job_code || '', { x: 355, y: 714, size: 7, font, color: black });
+    // CERTIFIED PAYROLL NO. left blank intentionally.
     statement.drawText(company.company_name || '', { x: 160, y: 699, size: 7, font, color: black });
     statement.drawText(site.address || '', { x: 160, y: 684, size: 7, font, color: black });
     statement.drawText(weekEndingDate, { x: 510, y: 684, size: 7, font, color: black });

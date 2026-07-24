@@ -97,20 +97,19 @@ async function resolveEntryPayFields({
 
 function getWeekBounds(dateStr) {
   const date = new Date(`${dateStr}T12:00:00Z`);
-  const day = date.getUTCDay();
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  const monday = new Date(date);
-  monday.setUTCDate(date.getUTCDate() + diffToMonday);
-  const friday = new Date(monday);
-  friday.setUTCDate(monday.getUTCDate() + 4);
+  const day = date.getUTCDay(); // 0 = Sunday … 6 = Saturday
+  const sunday = new Date(date);
+  sunday.setUTCDate(date.getUTCDate() - day);
+  const saturday = new Date(sunday);
+  saturday.setUTCDate(sunday.getUTCDate() + 6);
   return {
-    monday: monday.toISOString().split('T')[0],
-    friday: friday.toISOString().split('T')[0],
+    sunday: sunday.toISOString().split('T')[0],
+    saturday: saturday.toISOString().split('T')[0],
   };
 }
 
 async function getWorkerWeeklyHours(workerId, entryDate, payPeriodId) {
-  const { monday, friday } = getWeekBounds(entryDate);
+  const { sunday, saturday } = getWeekBounds(entryDate);
   const result = await query(
     `SELECT COALESCE(SUM(hours_worked), 0) AS total_hours
      FROM daily_time_entries
@@ -119,7 +118,7 @@ async function getWorkerWeeklyHours(workerId, entryDate, payPeriodId) {
        AND date_worked >= $3
        AND date_worked <= $4
        AND pay_code IN ('REGULAR', 'OT')`,
-    [workerId, payPeriodId, monday, friday]
+    [workerId, payPeriodId, sunday, saturday]
   );
   return Number(result.rows[0].total_hours);
 }

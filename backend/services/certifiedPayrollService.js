@@ -180,6 +180,27 @@ function calculateGrossThisJob(entries, rate) {
   return roundMoney(totalSt * hourlyRate + totalOt * hourlyRate * 1.5);
 }
 
+/**
+ * Map workers.worker_type (and legacy Paychex values like EMPLOYEE) to WH-347 J/RA codes.
+ * Mirrors Certified Payroll UI: only RA → "RA"; everything else → "J".
+ */
+function toWh347WorkerType(raw) {
+  const value = String(raw || '').trim().toUpperCase();
+  if (!value) return 'J';
+  if (value === 'RA' || value === 'APPRENTICE' || value === 'REGISTERED APPRENTICE') {
+    return 'RA';
+  }
+  if (
+    value === 'J' ||
+    value === 'JOURNEYMAN' ||
+    value === 'JOURNEYWORKER' ||
+    value === 'EMPLOYEE'
+  ) {
+    return 'J';
+  }
+  return 'J';
+}
+
 function groupWorkersFromHours(hoursRows) {
   const map = new Map();
   for (const row of hoursRows) {
@@ -191,6 +212,7 @@ function groupWorkersFromHours(hoursRows) {
         paychexWorkerNumber: row.identifying_number || '',
         rate: Number(row.pay_rate) || 0,
         laborClassification: row.labor_classification || '',
+        wh347WorkerType: toWh347WorkerType(row.worker_type),
         entries: [],
       });
     }
@@ -900,5 +922,6 @@ module.exports = {
   buildSupplementEstimate,
   buildSupplementFromPaychex,
   groupWorkersFromHours,
+  toWh347WorkerType,
   roundMoney,
 };

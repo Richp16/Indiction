@@ -163,7 +163,7 @@ router.get('/:id/weekly-hours', async (req, res) => {
         ? String(date).split('T')[0]
         : new Date().toISOString().split('T')[0];
 
-    const { monday, friday } = getWeekBounds(entryDate);
+    const { sunday, saturday } = getWeekBounds(entryDate);
 
     const result = await query(
       `SELECT
@@ -176,7 +176,7 @@ router.get('/:id/weekly-hours', async (req, res) => {
          AND date_worked <= $4
          AND pay_code IN ('REGULAR', 'OT')
        GROUP BY pay_code`,
-      [req.params.id, payPeriodId, monday, friday]
+      [req.params.id, payPeriodId, sunday, saturday]
     );
 
     let regularHours = 0;
@@ -194,8 +194,8 @@ router.get('/:id/weekly-hours', async (req, res) => {
     const remainingBeforeOT = Math.max(0, OT_WEEKLY_CAP - regularHours - otHours);
 
     res.json({
-      weekStart: monday,
-      weekEnd: friday,
+      weekStart: sunday,
+      weekEnd: saturday,
       regularHours,
       otHours,
       totalHours,

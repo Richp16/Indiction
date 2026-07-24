@@ -11,6 +11,7 @@ const {
   resolvePayPeriodWeekEnds,
   resolvePayPeriodContext,
   mergeBiweeklySupplementFields,
+  toWh347WorkerType,
 } = require('../services/certifiedPayrollService');
 const { fetchChecksForWorkers } = require('../services/paychexCheckData');
 const { fillWh347Form } = require('../services/wh347FormFill');
@@ -54,6 +55,7 @@ function buildWorkersFromHours(hoursRows) {
         first_name: row.first_name || '',
         last_name: row.last_name || '',
         worker_type: row.worker_type || 'J',
+        wh347WorkerType: toWh347WorkerType(row.worker_type),
         identifying_number: row.identifying_number || '',
         labor_classification: row.labor_classification || '',
         pay_rate: Number(row.pay_rate) || 0,
@@ -337,6 +339,7 @@ router.post('/export', async (req, res) => {
       pdfBuffer = await fillWh347Form({
         project: {
           name: site.name,
+          job_code: site.job_code,
           contract_number: site.contract_number,
           address: site.address,
           wage_determination_no: pickWageDetermination(site, supplementsByWorker),

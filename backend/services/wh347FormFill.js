@@ -167,35 +167,39 @@ function fitTextToField(pdfDoc, field, text, options = {}) {
   }
 
   const box = getWidgetBox(field);
-  // Tiny day/hour widgets (~11pt) cannot spare 2pt padding each side.
-  const effectivePad =
-    box != null
-      ? Math.min(padding, Math.max(0.25, box.width * 0.05))
-      : padding;
-  const usableWidth = box ? Math.max(1, box.width - effectivePad * 2) : null;
-  const usableHeight = box ? Math.max(minFontSize, box.height - 1) : maxFontSize;
+  // Guard: missing or tiny widgets must not force shrink-to-floor sizing.
+  const boxUsable =
+    box != null && Number.isFinite(box.width) && box.width >= 2 && Number.isFinite(box.height);
 
-  let size = Math.min(maxFontSize, usableHeight);
+  let size = maxFontSize;
   let display = original;
   let truncated = false;
 
-  if (font && usableWidth != null) {
-    while (size > minFontSize && font.widthOfTextAtSize(display, size) > usableWidth) {
-      size = Math.round((size - 0.5) * 10) / 10;
-    }
-    size = Math.max(minFontSize, size);
+  if (boxUsable) {
+    const effectivePad = Math.min(padding, Math.max(0.25, box.width * 0.05));
+    const usableWidth = Math.max(1, box.width - effectivePad * 2);
+    const usableHeight = Math.max(minFontSize, box.height - 1);
+    size = Math.min(maxFontSize, usableHeight);
 
-    if (font.widthOfTextAtSize(display, size) > usableWidth) {
-      const fitted = truncateToWidth(font, display, size, usableWidth);
-      truncated = fitted !== display;
-      if (truncated) {
-        console.warn(
-          `[wh347FormFill] Truncated field "${fieldName}": ` +
-            `original="${original}" → truncated="${fitted}" ` +
-            `(fontSize=${size}, boxWidth=${box?.width?.toFixed?.(1)})`
-        );
+    if (font) {
+      // Shrink only while the text is wider than the field.
+      while (size > minFontSize && font.widthOfTextAtSize(display, size) > usableWidth) {
+        size = Math.round((size - 0.5) * 10) / 10;
       }
-      display = fitted;
+      size = Math.max(minFontSize, size);
+
+      if (font.widthOfTextAtSize(display, size) > usableWidth) {
+        const fitted = truncateToWidth(font, display, size, usableWidth);
+        truncated = fitted !== display;
+        if (truncated) {
+          console.warn(
+            `[wh347FormFill] Truncated field "${fieldName}": ` +
+              `original="${original}" → truncated="${fitted}" ` +
+              `(fontSize=${size}, boxWidth=${box.width.toFixed(1)})`
+          );
+        }
+        display = fitted;
+      }
     }
   }
 
@@ -254,8 +258,14 @@ function setCheck(form, name, checked, warnings) {
 function fillHeader(ctx, { project, company, weekEndingDate, payrollNumber, isPrime, isFinal }) {
   const h = wh347FieldMap.header;
   setText(ctx, h.projectName, project?.name, { maxFontSize: 8 });
-  setText(ctx, h.projectNo, project?.contract_number || project?.projectNo);
-  setText(ctx, h.certifiedPayrollNo, payrollNumber);
+  // Prefer contract_number when set; otherwise Job Sites Job Code (project number).
+  setText(
+    ctx,
+    h.projectNo,
+    project?.contract_number || project?.job_code || project?.projectNo
+  );
+  // Left blank intentionally — the internal export counter is not a valid payroll number.
+  setText(ctx, h.certifiedPayrollNo, '');
   setText(ctx, h.primeContractorName, company?.company_name, { maxFontSize: 8 });
   setText(ctx, h.primeContractorAddress, company?.company_address, { maxFontSize: 7 });
   setText(ctx, h.projectLocation, project?.address || project?.location, { maxFontSize: 7 });
@@ -281,6 +291,43 @@ function fillDayHeaders(ctx, weekEndingDate) {
   }
 }
 
+/**
+ * Blank every text field in a worker row slot so template defaults (0 / 0.00)
+ * do not show on partially filled multi-page sheets.
+ */
+function clearWorkerSlot(ctx, slot) {
+  const fields = wh347FieldMap.workerRows[slot];
+  if (!fields) return;
+
+  const names = [
+    fields.entryNo,
+    fields.lastName,
+    fields.firstName,
+    fields.middleInitial,
+    fields.identifyingNo,
+    fields.workerType,
+    fields.classification,
+    ...(Array.isArray(fields.stHours) ? fields.stHours : []),
+    ...(Array.isArray(fields.otHours) ? fields.otHours : []),
+    fields.stRate,
+    fields.otRate,
+    fields.totalHours,
+    fields.fringeCredit,
+    fields.fringeInLieu,
+    fields.grossAmt,
+    fields.grossAllWork,
+    fields.taxWithholding,
+    fields.fica,
+    fields.otherDeductions,
+    fields.totalDeductions,
+    fields.netPay,
+  ];
+
+  for (const name of names) {
+    if (name) setText(ctx, name, '');
+  }
+}
+
 function fillWorkerSlot(ctx, slot, worker, entryNumber, supplementsByWorker, weekDays) {
   const fields = wh347FieldMap.workerRows[slot];
   if (!fields || !worker) return;
@@ -289,8 +336,11 @@ function fillWorkerSlot(ctx, slot, worker, entryNumber, supplementsByWorker, wee
   const days = worker.days || {};
 
   // ~11pt ST/OT day cells need a lower floor than name columns (default min 4).
-  const dayHours = { maxFontSize: 6, minFontSize: 2.5, padding: 0.5 };
-  const narrowMoney = { maxFontSize: 6, minFontSize: 3.5, padding: 0.75 };
+  // Numeric floors raised so short values (e.g. 23, 34.5, 920) stay ~5–7pt when they fit.
+  // dayHours (~11pt wide): min 4 — still shrinks for long decimals, never to ~2.5pt.
+  // narrowMoney: min 4.75 — readable rates/amounts; long strings still shrink then truncate.
+  const dayHours = { maxFontSize: 6, minFontSize: 4, padding: 0.5 };
+  const narrowMoney = { maxFontSize: 6, minFontSize: 4.75, padding: 0.75 };
   const nameOpts = { maxFontSize: 7, minFontSize: 4, padding: 1 };
 
   setText(ctx, fields.entryNo, entryNumber, narrowMoney);
@@ -306,7 +356,7 @@ function fillWorkerSlot(ctx, slot, worker, entryNumber, supplementsByWorker, wee
     supplement.paychex_worker_number || worker.identifying_number,
     narrowMoney
   );
-  setText(ctx, fields.workerType, worker.worker_type || 'J', {
+  setText(ctx, fields.workerType, worker.wh347WorkerType || 'J', {
     maxFontSize: 6,
     minFontSize: 4,
   });
@@ -429,6 +479,11 @@ async function fillSingleSheet(options) {
   fillHeader(ctx, { project, company, weekEndingDate, payrollNumber, isPrime, isFinal });
   fillDayHeaders(ctx, weekEndingDate);
 
+  // Clear all 8 slots first so unused rows are blank (not template 0 / 0.00).
+  for (let slot = 0; slot < WORKERS_PER_PAGE; slot += 1) {
+    clearWorkerSlot(ctx, slot);
+  }
+
   const batch = workers.slice(0, WORKERS_PER_PAGE);
   batch.forEach((worker, idx) => {
     fillWorkerSlot(
@@ -525,6 +580,7 @@ async function fillWh347Form(params) {
 module.exports = {
   fillWh347Form,
   fitTextToField,
+  clearWorkerSlot,
   TEMPLATE_PATH,
   WORKERS_PER_PAGE,
   buildWeekDays,
