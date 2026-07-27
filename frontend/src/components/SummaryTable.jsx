@@ -4,7 +4,6 @@ const COLUMNS = [
   { key: 'employeeId', label: 'Employee ID', type: 'text' },
   { key: 'firstName', label: 'First Name', type: 'text' },
   { key: 'lastName', label: 'Last Name', type: 'text' },
-  { key: 'jobSite', label: 'Job Site', type: 'text' },
   { key: 'week1Regular', label: 'Wk 1 Reg', type: 'hours' },
   { key: 'week1Overtime', label: 'Wk 1 OT', type: 'hours' },
   { key: 'week1Total', label: 'Wk 1 Total', type: 'hours' },
@@ -96,7 +95,7 @@ export default function SummaryTable({ rows }) {
         </thead>
         <tbody>
           {displayRows.map((row, index) => (
-            <tr key={`${row.employeeId}-${row.jobSite}-${index}`}>
+            <tr key={`${row.employeeId}-${index}`}>
               {COLUMNS.map((col) => (
                 <td
                   key={col.key}

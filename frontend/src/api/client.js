@@ -41,6 +41,18 @@ export async function apiPatch(path, body, token) {
   return parseResponse(res);
 }
 
+export async function apiPut(path, body, token) {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  return parseResponse(res);
+}
+
 export async function apiDelete(path, token, body) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: 'DELETE',

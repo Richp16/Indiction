@@ -55,7 +55,6 @@ export default function Summary() {
           <thead>
             <tr>
               <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Worker</th>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Job Site</th>
               <th style={{ textAlign: 'right', borderBottom: '1px solid #ccc' }}>Rate</th>
               <th style={{ textAlign: 'right', borderBottom: '1px solid #ccc' }}>Total Hours</th>
               <th style={{ textAlign: 'right', borderBottom: '1px solid #ccc' }}>Wages</th>
@@ -67,7 +66,6 @@ export default function Summary() {
             {rows.map((row, index) => {
               const workerName =
                 row.workerName || `${row.firstName || ''} ${row.lastName || ''}`.trim();
-              const jobSiteName = row.jobSiteName || row.jobSite || '—';
               const totalHours = Number(row.totalHours) || 0;
               const standardRate = Number(row.standardRate) || 0;
               const totalReimbursement =
@@ -77,9 +75,8 @@ export default function Summary() {
               const total = Number(row.total) || wages + totalReimbursement;
 
               return (
-                <tr key={`${workerName}-${jobSiteName}-${index}`}>
+                <tr key={`${row.employeeId || workerName}-${index}`}>
                   <td style={{ borderBottom: '1px solid #eee' }}>{workerName || '—'}</td>
-                  <td style={{ borderBottom: '1px solid #eee' }}>{jobSiteName}</td>
                   <td style={{ textAlign: 'right', borderBottom: '1px solid #eee' }}>
                     {standardRate > 0 ? `$${standardRate.toFixed(2)}` : '—'}
                   </td>

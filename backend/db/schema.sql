@@ -151,6 +151,18 @@ CREATE TABLE IF NOT EXISTS wh347_supplements (
   UNIQUE(worker_id, job_site_id, week_ending_date)
 );
 
+CREATE TABLE IF NOT EXISTS payroll_adjustments (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pay_period_id          UUID NOT NULL REFERENCES pay_periods(id) ON DELETE CASCADE,
+  worker_id              UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+  reimbursement_amount   NUMERIC(12,2) NOT NULL DEFAULT 0,
+  short_pay_amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+  note                   TEXT,
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (pay_period_id, worker_id)
+);
+
 CREATE TABLE IF NOT EXISTS company_settings (
   id                        SERIAL PRIMARY KEY,
   company_name              VARCHAR(255),

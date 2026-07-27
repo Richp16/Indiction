@@ -29,14 +29,13 @@ SELECT
   w.employee_code                                                          AS "employeeId",
   w.first_name                                                             AS "firstName",
   w.last_name                                                              AS "lastName",
-  js.name                                                                  AS "jobSite",
-  COALESCE(SUM(CASE WHEN d.week_number = 1 AND d.pay_code = 'REGULAR' THEN d.hours_worked END), 0)                                        AS "week1Regular",
+  COALESCE(SUM(CASE WHEN d.week_number = 1 AND d.pay_code IN ('REGULAR', 'HOURLY', 'Regular', 'Hourly') THEN d.hours_worked END), 0) AS "week1Regular",
   COALESCE(SUM(CASE WHEN d.week_number = 1 AND d.pay_code = 'OT' THEN d.hours_worked END), 0)                                               AS "week1Overtime",
   COALESCE(SUM(CASE WHEN d.week_number = 1 THEN d.hours_worked END), 0)        AS "week1Total",
-  COALESCE(SUM(CASE WHEN d.week_number = 2 AND d.pay_code = 'REGULAR' THEN d.hours_worked END), 0)                                        AS "week2Regular",
+  COALESCE(SUM(CASE WHEN d.week_number = 2 AND d.pay_code IN ('REGULAR', 'HOURLY', 'Regular', 'Hourly') THEN d.hours_worked END), 0) AS "week2Regular",
   COALESCE(SUM(CASE WHEN d.week_number = 2 AND d.pay_code = 'OT' THEN d.hours_worked END), 0)                                               AS "week2Overtime",
   COALESCE(SUM(CASE WHEN d.week_number = 2 THEN d.hours_worked END), 0)        AS "week2Total",
-  COALESCE(SUM(CASE WHEN d.pay_code = 'REGULAR' THEN d.hours_worked END), 0)                                                               AS "totalRegular",
+  COALESCE(SUM(CASE WHEN d.pay_code IN ('REGULAR', 'HOURLY', 'Regular', 'Hourly') THEN d.hours_worked END), 0)                               AS "totalRegular",
   COALESCE(SUM(CASE WHEN d.pay_code = 'OT' THEN d.hours_worked END), 0)                                                                    AS "totalOvertime",
   COALESCE(SUM(d.hours_worked), 0)                                               AS "totalHours",
   COALESCE(SUM(CASE WHEN d.component_name ILIKE '%truck%' THEN d.reimbursement_amount END), 0)                                                   AS "truckReimbursement",
@@ -45,17 +44,15 @@ SELECT
   MAX(w.standard_rate)                                                                                                                             AS "standardRate"
 FROM daily_time_entries d
 JOIN workers w  ON d.worker_id    = w.id
-JOIN job_sites js ON d.job_site_id = js.id
 WHERE d.pay_period_id = $1
-GROUP BY w.employee_code, w.first_name, w.last_name, js.name
-ORDER BY w.last_name, w.first_name, js.name;
+GROUP BY w.employee_code, w.first_name, w.last_name
+ORDER BY w.last_name, w.first_name;
 `;
 
 const CSV_HEADERS = [
   'Employee ID',
   'First Name',
   'Last Name',
-  'Job Site',
   'Week 1 Regular',
   'Week 1 Overtime',
   'Week 1 Total',
@@ -74,7 +71,6 @@ const CSV_FIELD_MAP = [
   'employeeId',
   'firstName',
   'lastName',
-  'jobSite',
   'week1Regular',
   'week1Overtime',
   'week1Total',
@@ -121,6 +117,9 @@ module.exports = {
   getAggregatedSummary,
   getCompanyEarnings,
   generateCSV,
+  AGGREGATED_SUMMARY_SQL,
+  CSV_HEADERS,
+  CSV_FIELD_MAP,
   OT_EARNINGS_MULTIPLIER,
   EMPLOYER_LIABILITY_RATE,
 };

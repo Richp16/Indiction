@@ -55,6 +55,33 @@ function formatShortDate(date) {
   return `${date.getUTCMonth() + 1}/${date.getUTCDate()}/${yy}`;
 }
 
+/** Zero-padded MM/DD/YYYY for WEEK ENDING DATE and statement DATE fields. */
+function formatLongDate(dateStr) {
+  const date = parseIsoDate(dateStr);
+  if (!date) return textValue(dateStr);
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  const yyyy = date.getUTCFullYear();
+  return `${mm}/${dd}/${yyyy}`;
+}
+
+/**
+ * ISO 8601 week number for a YYYY-MM-DD date (Mon–Sun weeks; week 1 contains Jan 4).
+ * Used for CERTIFIED PAYROLL NO.
+ */
+function getIsoWeekNumber(dateStr) {
+  const date = parseIsoDate(dateStr);
+  if (!date) return '';
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNum = (d.getUTCDay() + 6) % 7; // Mon=0..Sun=6
+  d.setUTCDate(d.getUTCDate() - dayNum + 3); // nearest Thursday
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  const weekNumber = 1 + Math.round((d - firstThursday) / (7 * 24 * 60 * 60 * 1000));
+  return String(weekNumber);
+}
+
 /** Day 1 = weekEnding − 6 … Day 7 = weekEnding (UTC). */
 function buildWeekDays(weekEndingDate) {
   const end = parseIsoDate(weekEndingDate);
@@ -311,13 +338,14 @@ function fillHeader(ctx, { project, company, weekEndingDate, payrollNumber, isPr
     h.projectNo,
     project?.contract_number || project?.job_code || project?.projectNo
   );
-  // Left blank intentionally — the internal export counter is not a valid payroll number.
-  setText(ctx, h.certifiedPayrollNo, '');
+  // CERTIFIED PAYROLL NO. = ISO week of the week-ending date (fallback to caller override).
+  const resolvedPayrollNumber = getIsoWeekNumber(weekEndingDate) || payrollNumber || '';
+  setText(ctx, h.certifiedPayrollNo, resolvedPayrollNumber);
   setText(ctx, h.primeContractorName, company?.company_name, { maxFontSize: 8 });
   setText(ctx, h.primeContractorAddress, company?.company_address, { maxFontSize: 7 });
   setText(ctx, h.projectLocation, project?.address || project?.location, { maxFontSize: 7 });
   setText(ctx, h.wageDeterminationNo, project?.wage_determination_no);
-  setText(ctx, h.weekEndingDate, weekEndingDate);
+  setText(ctx, h.weekEndingDate, formatLongDate(weekEndingDate));
 
   const prime = isPrime !== false;
   setCheck(ctx.form, h.primeCheckbox, prime, ctx.warnings);
@@ -472,7 +500,7 @@ function fillStatement(ctx, { company, weekEndingDate, statementCheckBoxes }) {
   setText(ctx, s.additionalRemarks, company?.additional_remarks, { maxFontSize: 8 });
   setText(ctx, s.certifyingOfficialRow1, nameTitle, { maxFontSize: 8 });
   setText(ctx, s.signatureRow1, company?.certifying_official_name, { maxFontSize: 8 });
-  setText(ctx, s.dateRow1, weekEndingDate);
+  setText(ctx, s.dateRow1, formatLongDate(weekEndingDate));
   setText(ctx, s.email, company?.email, { maxFontSize: 7 });
 
   const phone = splitPhone(company?.phone);
@@ -480,11 +508,34 @@ function fillStatement(ctx, { company, weekEndingDate, statementCheckBoxes }) {
   setText(ctx, s.telPart1, phone.telPart1, { maxFontSize: 7, minFontSize: 5 });
   setText(ctx, s.telPart2, phone.telPart2, { maxFontSize: 7, minFontSize: 5 });
 
-  const checked = new Set(
-    Array.isArray(statementCheckBoxes) ? statementCheckBoxes.map(Number) : []
+  // AcroForm names are NOT top-to-bottom. Visual order by Y:
+  //   Check Box1 → payroll info
+  //   Check Box3 → all regular payrolls
+  //   Check Box4 → classifications reported
+  //   Check Box2 → apprentices (leave unchecked by default)
+  //   Check Box5 → fringe (leave unchecked by default)
+  //   Check Box6 → paid full weekly wages (above ADDITIONAL REMARKS)
+  const requiredBoxes = new Set([
+    'Check Box1',
+    'Check Box3',
+    'Check Box4',
+    'Check Box6',
+  ]);
+  const passedIn = new Set(
+    Array.isArray(statementCheckBoxes)
+      ? statementCheckBoxes.map((v) => {
+          const n = Number(v);
+          // Allow 1-based indexes or explicit field names.
+          if (Number.isFinite(n) && n >= 1 && n <= s.checkBoxes.length) {
+            return s.checkBoxes[n - 1];
+          }
+          return String(v);
+        })
+      : []
   );
-  s.checkBoxes.forEach((name, idx) => {
-    setCheck(ctx.form, name, checked.has(idx + 1), ctx.warnings);
+  const checked = new Set([...passedIn, ...requiredBoxes]);
+  s.checkBoxes.forEach((name) => {
+    setCheck(ctx.form, name, checked.has(name), ctx.warnings);
   });
 }
 
@@ -628,6 +679,8 @@ module.exports = {
   fillWh347Form,
   fitTextToField,
   clearWorkerSlot,
+  getIsoWeekNumber,
+  formatLongDate,
   TEMPLATE_PATH,
   WORKERS_PER_PAGE,
   buildWeekDays,

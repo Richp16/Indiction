@@ -13,6 +13,8 @@ const {
   resolvePayrollPeriodFromQuery,
   formatPeriodLabel,
 } = require('../services/payrollPayPeriods');
+const { upsertAdjustments } = require('../services/payrollAdjustments');
+const { query } = require('../db');
 
 const router = express.Router();
 
@@ -21,6 +23,12 @@ const UUID_RE =
 
 function sumExportHours(rows) {
   return rows.reduce((total, row) => total + sumRowHours(row), 0);
+}
+
+function parseMoneyInput(value) {
+  if (value == null || value === '') return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : NaN;
 }
 
 router.get('/pay-periods', requireAuth, async (_req, res) => {
@@ -134,6 +142,76 @@ router.get('/:payPeriodId/preview', requireAuth, async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
+
+router.put(
+  '/:payPeriodId/adjustments',
+  requireRole('payroll_admin', 'system_admin'),
+  async (req, res) => {
+    try {
+      const { payPeriodId } = req.params;
+      const { adjustments } = req.body || {};
+
+      if (!payPeriodId || !UUID_RE.test(payPeriodId)) {
+        return res.status(400).json({ message: 'Invalid pay period ID' });
+      }
+
+      if (!Array.isArray(adjustments) || adjustments.length === 0) {
+        return res.status(400).json({ message: 'adjustments array is required' });
+      }
+
+      const periodResult = await query('SELECT id FROM pay_periods WHERE id = $1', [
+        payPeriodId,
+      ]);
+      if (periodResult.rows.length === 0) {
+        return res.status(404).json({ message: 'Pay period not found' });
+      }
+
+      const normalized = [];
+      for (let i = 0; i < adjustments.length; i += 1) {
+        const item = adjustments[i] || {};
+        const workerId = item.workerId;
+        if (!workerId || !UUID_RE.test(String(workerId))) {
+          return res.status(400).json({
+            message: `adjustments[${i}].workerId must be a worker UUID`,
+          });
+        }
+
+        const reimbursementAmount = parseMoneyInput(item.reimbursementAmount);
+        const shortPayAmount = parseMoneyInput(item.shortPayAmount);
+        if (Number.isNaN(reimbursementAmount) || Number.isNaN(shortPayAmount)) {
+          return res.status(400).json({
+            message: `adjustments[${i}] has invalid reimbursementAmount or shortPayAmount`,
+          });
+        }
+
+        normalized.push({
+          workerId: String(workerId),
+          reimbursementAmount,
+          shortPayAmount,
+        });
+      }
+
+      const workerCheck = await query(
+        `SELECT id::text AS id FROM workers WHERE id = ANY($1::uuid[])`,
+        [normalized.map((a) => a.workerId)]
+      );
+      const found = new Set(workerCheck.rows.map((r) => r.id));
+      const missing = normalized.find((a) => !found.has(a.workerId));
+      if (missing) {
+        return res.status(400).json({ message: 'One or more workerId values are invalid' });
+      }
+
+      const result = await upsertAdjustments(payPeriodId, normalized, {
+        asAbsolute: true,
+      });
+
+      res.json({ success: true, upserted: result.upserted });
+    } catch (error) {
+      console.error('[payroll/adjustments]', error.message);
+      res.status(500).json({ message: error.message });
+    }
+  }
+);
 
 router.delete('/:payPeriodId/row', requireRole('payroll_admin', 'system_admin'), async (req, res) => {
   try {

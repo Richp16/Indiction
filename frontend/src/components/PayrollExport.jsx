@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { apiGet, apiPostDownload, apiDelete } from '../api/client';
+import { apiGet, apiPostDownload, apiDelete, apiPut } from '../api/client';
 
 const OT_EARNINGS_MULTIPLIER = 1.5;
 
@@ -32,8 +32,12 @@ function recomputeTotalAmount(row) {
   const hourly = parseNumericField(row['Hourly Hours']);
   const overtime = parseNumericField(row['Overtime Hours']);
   const rate = parseNumericField(row['Hourly Rate']);
+  const reimbursement = parseNumericField(row['Reimbursement Amount']);
+  const shortPay = parseNumericField(row['Short Pay Amount']);
   // Edited overtime column uses 1.5×; initial server rows already baked DT at 2× into Total Amount.
-  return formatMoney(hourly * rate + overtime * rate * OT_EARNINGS_MULTIPLIER);
+  return formatMoney(
+    hourly * rate + overtime * rate * OT_EARNINGS_MULTIPLIER + reimbursement - shortPay
+  );
 }
 
 function getRowIssues(row) {
@@ -64,7 +68,6 @@ const TABLE_COLUMNS = [
   { key: 'Name', label: 'Name', align: 'left' },
   { key: 'Employee ID', label: 'Employee ID', align: 'right' },
   { key: 'Total Amount', label: 'Total Amount', align: 'right' },
-  { key: 'Job', label: 'Job', align: 'left' },
   { key: 'Hourly Hours', label: 'Hourly Hours', align: 'right' },
   { key: 'Hourly Rate', label: 'Hourly Rate', align: 'right' },
   { key: 'Overtime Hours', label: 'Overtime Hours', align: 'right' },
@@ -80,41 +83,46 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
   const [warnings, setWarnings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [rowPendingDelete, setRowPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  /** workerDbId → pending absolute reimbursement / short pay from the grid */
+  const [editedAdjustments, setEditedAdjustments] = useState(() => new Map());
   const cancelButtonRef = useRef(null);
 
-  useEffect(() => {
+  const loadPreview = useCallback(async () => {
     if (!payPeriodId || !token) {
       setExportRows([]);
       setPayPeriod(null);
       setClientCode('payroll');
       setWarnings([]);
+      setEditedAdjustments(new Map());
       return;
     }
 
-    async function loadPreview() {
-      setLoading(true);
-      setError('');
-      try {
-        const data = await apiGet(`/api/payroll/${payPeriodId}/preview`, token);
-        setExportRows(data.rows || []);
-        setPayPeriod(data.payPeriod || null);
-        setClientCode(data.clientCode || 'payroll');
-        setWarnings(data.warnings || []);
-      } catch (err) {
-        setError(err.message || 'Failed to load payroll export preview');
-        setExportRows([]);
-        setWarnings([]);
-      } finally {
-        setLoading(false);
-      }
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiGet(`/api/payroll/${payPeriodId}/preview`, token);
+      setExportRows(data.rows || []);
+      setPayPeriod(data.payPeriod || null);
+      setClientCode(data.clientCode || 'payroll');
+      setWarnings(data.warnings || []);
+      setEditedAdjustments(new Map());
+    } catch (err) {
+      setError(err.message || 'Failed to load payroll export preview');
+      setExportRows([]);
+      setWarnings([]);
+    } finally {
+      setLoading(false);
     }
-
-    loadPreview();
   }, [payPeriodId, token]);
+
+  useEffect(() => {
+    loadPreview();
+  }, [loadPreview]);
 
   const rowIssues = useMemo(
     () => exportRows.map((row) => getRowIssues(row)),
@@ -123,6 +131,7 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
 
   const issueCount = rowIssues.filter((issues) => issues.length > 0).length;
   const hasValidationErrors = issueCount > 0;
+  const hasUnsavedAdjustments = editedAdjustments.size > 0;
 
   const totalHours = useMemo(
     () =>
@@ -137,30 +146,69 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
   );
 
   function handleFieldChange(index, field, value) {
-    setExportRows((rows) =>
-      rows.map((row, i) => {
-        if (i !== index) return row;
+    const row = exportRows[index];
+    if (!row) return;
 
-        let next = { ...row, [field]: value };
-        if (field === 'Employee ID') {
-          next = { ...next, worker_id: value, 'Employee ID': value };
-        }
-        if (
-          field === 'Hourly Hours' ||
-          field === 'Overtime Hours' ||
-          field === 'Hourly Rate'
-        ) {
-          if (field === 'Hourly Hours' || field === 'Overtime Hours') {
-            next[field] = value;
-          }
-          if (field === 'Hourly Rate') {
-            next._rateMissing = false;
-          }
-          next['Total Amount'] = recomputeTotalAmount(next);
-        }
-        return next;
-      })
-    );
+    let next = { ...row, [field]: value };
+    if (field === 'Employee ID') {
+      next = { ...next, worker_id: value, 'Employee ID': value };
+    }
+    if (
+      field === 'Hourly Hours' ||
+      field === 'Overtime Hours' ||
+      field === 'Hourly Rate' ||
+      field === 'Reimbursement Amount' ||
+      field === 'Short Pay Amount'
+    ) {
+      if (field === 'Hourly Rate') {
+        next._rateMissing = false;
+      }
+      next['Total Amount'] = recomputeTotalAmount(next);
+    }
+
+    setExportRows((rows) => rows.map((r, i) => (i === index ? next : r)));
+
+    if (
+      (field === 'Reimbursement Amount' || field === 'Short Pay Amount') &&
+      row._workerDbId
+    ) {
+      setEditedAdjustments((prev) => {
+        const map = new Map(prev);
+        map.set(String(row._workerDbId), {
+          reimbursementAmount: next['Reimbursement Amount'],
+          shortPayAmount: next['Short Pay Amount'],
+        });
+        return map;
+      });
+    }
+
+    setSuccessMessage('');
+  }
+
+  async function handleSaveAdjustments() {
+    if (!payPeriodId || !hasUnsavedAdjustments) return;
+
+    setSaving(true);
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      const adjustments = Array.from(editedAdjustments.entries()).map(
+        ([workerId, values]) => ({
+          workerId,
+          reimbursementAmount: parseNumericField(values.reimbursementAmount),
+          shortPayAmount: parseNumericField(values.shortPayAmount),
+        })
+      );
+
+      await apiPut(`/api/payroll/${payPeriodId}/adjustments`, { adjustments }, token);
+      setEditedAdjustments(new Map());
+      setSuccessMessage('Reimbursement and Short Pay changes saved.');
+    } catch (err) {
+      setError(err.message || 'Unable to save adjustments. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function openDeleteConfirm(row, index) {
@@ -254,7 +302,7 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
       <h2>Payroll Export</h2>
 
       <p style={{ color: '#444', maxWidth: 720 }}>
-        One row per worker per job. Hourly and overtime hours are shown as columns. Review
+        One row per worker for the pay period (hours summed across all job sites). Review
         amounts below, then download the CSV for SPI / Paychex payroll import.
       </p>
 
@@ -337,7 +385,7 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
               {exportRows.map((row, index) => {
                 const issues = rowIssues[index];
                 const rowStyle = issues.length > 0 ? { background: '#fff0f0' } : {};
-                const rowKey = `${row._workerDbId}-${row._jobSiteId ?? 'none'}-${index}`;
+                const rowKey = `${row._workerDbId ?? row['Employee ID']}-${index}`;
 
                 return (
                   <tr key={rowKey} style={rowStyle}>
@@ -356,9 +404,6 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       {formatMoneyDisplay(row['Total Amount'])}
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'left' }}>
-                      {row.Job ?? row._jobName}
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       <input
@@ -440,7 +485,7 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
                           )
                         }
                         style={{ ...inputStyle, width: 88, textAlign: 'right' }}
-                        title="No Short Pay data source yet — defaults to 0.00"
+                        title="Editable — click Save changes to persist for this pay period"
                       />
                     </td>
                     {isAdmin && (
@@ -464,11 +509,32 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
       )}
 
       {isAdmin && (
-        <div style={{ marginTop: '1rem' }}>
+        <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={handleSaveAdjustments}
+            disabled={
+              loading || saving || !hasUnsavedAdjustments || exportRows.length === 0
+            }
+          >
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
           <button
             type="button"
             onClick={handleDownload}
-            disabled={loading || downloading || hasValidationErrors || exportRows.length === 0}
+            disabled={
+              loading ||
+              downloading ||
+              saving ||
+              hasValidationErrors ||
+              hasUnsavedAdjustments ||
+              exportRows.length === 0
+            }
+            title={
+              hasUnsavedAdjustments
+                ? 'Save reimbursement / short pay changes before downloading'
+                : undefined
+            }
           >
             {downloading ? 'Downloading…' : 'Download Payroll CSV'}
           </button>
@@ -489,7 +555,8 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
             </h3>
             <p style={{ marginBottom: '1.25rem', color: '#444' }}>
               Are you sure you want to delete this payroll row? This removes all associated
-              time entries for this worker and job in this pay period (hourly and overtime).
+              time entries for this worker across all job sites in this pay period (hourly and
+              overtime).
             </p>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
               <button

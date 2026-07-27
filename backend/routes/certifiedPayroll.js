@@ -333,6 +333,8 @@ router.post('/export', async (req, res) => {
     const payrollNumber = (site.certified_payroll_count || 0) + 1;
     const flatten = parseFlattenFlag(req);
     const useNew = useNewWh347Export();
+    // Request body drives Prime vs Subcontractor checkbox (default: prime).
+    const isPrime = req.body?.isPrime !== false && req.body?.isPrime !== 'false';
 
     let pdfBuffer;
     if (useNew) {
@@ -353,7 +355,7 @@ router.post('/export', async (req, res) => {
         workers,
         supplementsByWorker,
         flatten,
-        isPrime: true,
+        isPrime,
         isFinal: Boolean(req.body?.isFinal),
       });
     } else {

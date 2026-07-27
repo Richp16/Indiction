@@ -162,6 +162,7 @@ export default function CertifiedPayrollPage() {
   const [successMessage, setSuccessMessage] = useState('');
   const [savedWorkerId, setSavedWorkerId] = useState('');
   const [a11yStatus, setA11yStatus] = useState('');
+  const [contractorRole, setContractorRole] = useState('prime'); // 'prime' | 'sub'
 
   useEffect(() => {
     if (isLoadingPageData) {
@@ -219,6 +220,7 @@ export default function CertifiedPayrollPage() {
         weekEndingDate,
         payPeriodId: selectedPayPeriodId,
         flatten,
+        isPrime: contractorRole === 'prime',
       },
       token
     );
@@ -459,6 +461,20 @@ export default function CertifiedPayrollPage() {
           <span>{isResyncing ? 'Syncing…' : 'Re-sync from Paychex'}</span>
           {isResyncing && <span className="sr-only">Syncing from Paychex</span>}
         </button>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+          <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>Contractor role</span>
+          <select
+            value={contractorRole}
+            onChange={(e) => setContractorRole(e.target.value)}
+            style={selectStyle}
+            aria-label="Prime or Subcontractor for WH-347"
+            data-testid="contractor-role-select"
+          >
+            <option value="prime">Prime Contractor</option>
+            <option value="sub">Subcontractor</option>
+          </select>
+        </label>
 
         <button
           type="button"
