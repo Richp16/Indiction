@@ -95,8 +95,15 @@ const mockChecks = {
   ],
 };
 
+const mockClassifications = [
+  { id: 1, name: 'Carpenter' },
+  { id: 2, name: 'Laborer' },
+];
+
 let apiGetMock;
 let apiPostMock;
+let apiPatchMock;
+let apiPostDownloadMock;
 let resolveTableData;
 
 vi.mock('../../context/AuthContext', () => ({
@@ -106,8 +113,8 @@ vi.mock('../../context/AuthContext', () => ({
 vi.mock('../../api/client', () => ({
   apiGet: (...args) => apiGetMock(...args),
   apiPost: (...args) => apiPostMock(...args),
-  apiPatch: vi.fn(),
-  apiPostDownload: vi.fn(),
+  apiPatch: (...args) => apiPatchMock(...args),
+  apiPostDownload: (...args) => apiPostDownloadMock(...args),
 }));
 
 function deferred() {
@@ -125,6 +132,7 @@ function setupApiMocks({ delayTableData = false } = {}) {
   apiGetMock = vi.fn(async (path) => {
     if (path === '/api/job-sites') return mockSites;
     if (path === '/api/paychex/company') return mockCompany;
+    if (path === '/api/labor-classifications') return mockClassifications;
     if (path.includes('/api/paychex/companies/') && path.includes('/pay-periods')) {
       return mockPaychexPeriods;
     }
@@ -153,6 +161,17 @@ function setupApiMocks({ delayTableData = false } = {}) {
       },
     ],
     hasEstimated: false,
+  }));
+
+  apiPatchMock = vi.fn(async () => ({
+    id: 'worker-1',
+    laborClassificationId: 2,
+    laborClassificationName: 'Laborer',
+  }));
+
+  apiPostDownloadMock = vi.fn(async () => ({
+    blob: new Blob(['pdf']),
+    filename: 'WH347-test.pdf',
   }));
 
   resolveTableData = () => {
@@ -219,6 +238,7 @@ describe('CertifiedPayrollPage loading states', () => {
     apiGetMock.mockImplementation(async (path) => {
       if (path === '/api/job-sites') return mockSites;
       if (path === '/api/paychex/company') return mockCompany;
+      if (path === '/api/labor-classifications') return mockClassifications;
       if (path.includes('/pay-periods')) return mockPaychexPeriods;
       if (path.includes('/checks')) return mockChecks;
       if (path.includes('/api/certified-payroll/hours')) return delayedHours.promise;
@@ -343,6 +363,7 @@ describe('CertifiedPayrollPage loading states', () => {
     apiGetMock = vi.fn(async (path) => {
       if (path === '/api/job-sites') return mockSites;
       if (path === '/api/paychex/company') return mockCompany;
+      if (path === '/api/labor-classifications') return mockClassifications;
       if (path.includes('/pay-periods')) return mockPaychexPeriods;
       if (path.includes('/checks')) {
         const err = new Error(
@@ -379,6 +400,7 @@ describe('CertifiedPayrollPage loading states', () => {
     apiGetMock = vi.fn(async (path) => {
       if (path === '/api/job-sites') return mockSites;
       if (path === '/api/paychex/company') return mockCompany;
+      if (path === '/api/labor-classifications') return mockClassifications;
       if (path.includes('/pay-periods')) return mockPaychexPeriods;
       if (path.includes('/checks')) return mockChecks;
       if (path.includes('/api/certified-payroll/hours')) return { rows: [] };
@@ -398,5 +420,139 @@ describe('CertifiedPayrollPage loading states', () => {
     expect(
       within(supplementSection).getByText('No supplement rows for this week and job site.')
     ).toBeInTheDocument();
+  });
+});
+
+describe('CertifiedPayrollPage classification assignment', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupApiMocks();
+  });
+
+  it('shows a classification dropdown and blocks WH-347 export when missing', async () => {
+    const missingHours = {
+      rows: [
+        {
+          id: 'worker-missing',
+          first_name: 'Manuel',
+          last_name: 'Calderon',
+          labor_classification: null,
+          needs_classification: true,
+          worker_type: 'J',
+          pay_rate: 30,
+          paychex_component_id: 'REGULAR',
+          hours: 8,
+        },
+      ],
+    };
+    const missingSupplements = {
+      rows: [
+        {
+          worker_id: 'worker-missing',
+          worker_name: 'Manuel Calderon',
+          classification: '',
+          needsClassification: true,
+          wage_determination_no: 'WD-1',
+          net_pay: '400.00',
+        },
+      ],
+      hasEstimated: false,
+      warnings: mockSupplements.warnings,
+      debug: mockSupplements.debug,
+    };
+
+    apiGetMock = vi.fn(async (path) => {
+      if (path === '/api/job-sites') return mockSites;
+      if (path === '/api/paychex/company') return mockCompany;
+      if (path === '/api/labor-classifications') return mockClassifications;
+      if (path.includes('/pay-periods')) return mockPaychexPeriods;
+      if (path.includes('/checks')) return mockChecks;
+      if (path.includes('/api/certified-payroll/hours')) return missingHours;
+      if (path.includes('/api/certified-payroll/supplements')) return missingSupplements;
+      throw new Error(`Unexpected apiGet path: ${path}`);
+    });
+
+    render(<CertifiedPayrollPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Calderon, Manuel')).toBeInTheDocument();
+    });
+
+    const select = screen.getByTestId('classification-select-worker-missing');
+    expect(select).toBeInTheDocument();
+    expect(screen.getByTestId('missing-classification-banner')).toHaveTextContent(
+      'Calderon, Manuel'
+    );
+    expect(screen.getByTestId('export-wh347-button')).toBeDisabled();
+  });
+
+  it('saves classification via PATCH and collapses dropdown to plain text', async () => {
+    const user = userEvent.setup();
+    const missingHours = {
+      rows: [
+        {
+          id: 'worker-missing',
+          first_name: 'Yefry',
+          last_name: 'Estrada',
+          labor_classification: '',
+          needs_classification: true,
+          worker_type: 'J',
+          pay_rate: 28,
+          paychex_component_id: 'REGULAR',
+          hours: 10,
+        },
+      ],
+    };
+    const missingSupplements = {
+      rows: [
+        {
+          worker_id: 'worker-missing',
+          worker_name: 'Yefry Estrada',
+          classification: '',
+          needsClassification: true,
+          wage_determination_no: 'WD-1',
+          net_pay: '300.00',
+        },
+      ],
+      hasEstimated: false,
+      warnings: mockSupplements.warnings,
+      debug: mockSupplements.debug,
+    };
+
+    apiGetMock = vi.fn(async (path) => {
+      if (path === '/api/job-sites') return mockSites;
+      if (path === '/api/paychex/company') return mockCompany;
+      if (path === '/api/labor-classifications') return mockClassifications;
+      if (path.includes('/pay-periods')) return mockPaychexPeriods;
+      if (path.includes('/checks')) return mockChecks;
+      if (path.includes('/api/certified-payroll/hours')) return missingHours;
+      if (path.includes('/api/certified-payroll/supplements')) return missingSupplements;
+      throw new Error(`Unexpected apiGet path: ${path}`);
+    });
+
+    render(<CertifiedPayrollPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('classification-select-worker-missing')).toBeInTheDocument();
+    });
+
+    await user.selectOptions(
+      screen.getByTestId('classification-select-worker-missing'),
+      '2'
+    );
+
+    await waitFor(() => {
+      expect(apiPatchMock).toHaveBeenCalledWith(
+        '/api/workers/worker-missing/labor-classification',
+        { laborClassificationId: 2 },
+        'test-token'
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('classification-select-worker-missing')).not.toBeInTheDocument();
+    });
+    expect(screen.getAllByText('Laborer').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTestId('export-wh347-button')).not.toBeDisabled();
   });
 });

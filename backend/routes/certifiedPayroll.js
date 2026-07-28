@@ -61,6 +61,7 @@ function buildWorkersFromHours(hoursRows) {
         wh347WorkerType: toWh347WorkerType(row.worker_type),
         identifying_number: row.identifying_number || '',
         labor_classification: row.labor_classification || '',
+        needsClassification: !row.labor_classification,
         pay_rate: Number(row.pay_rate) || 0,
         days: {
           mon: { st: 0, ot: 0 },
@@ -125,7 +126,13 @@ router.get('/hours', async (req, res) => {
       return res.status(400).json({ message: 'jobSiteId and weekEndingDate are required' });
     }
     const rows = await loadHoursRows(jobSiteId, weekEndingDate);
-    res.json({ rows, ...getWeekWindow(weekEndingDate) });
+    res.json({
+      rows: rows.map((row) => ({
+        ...row,
+        needs_classification: !row.labor_classification,
+      })),
+      ...getWeekWindow(weekEndingDate),
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -329,6 +336,22 @@ router.post('/export', async (req, res) => {
     if (!site) return res.status(404).json({ message: 'Job site not found' });
 
     const workers = buildWorkersFromHours(hoursRows);
+    const missingClassification = workers.filter((w) => w.needsClassification);
+    if (missingClassification.length > 0) {
+      const names = missingClassification.map((w) =>
+        `${w.last_name || ''}, ${w.first_name || ''}`.replace(/^,\s*|,\s*$/g, '').trim() ||
+        w.id
+      );
+      return res.status(400).json({
+        message:
+          `Assign a labor classification before generating WH-347 for: ${names.join('; ')}`,
+        workersMissingClassification: missingClassification.map((w) => ({
+          workerId: w.id,
+          workerName: `${w.first_name || ''} ${w.last_name || ''}`.trim(),
+        })),
+      });
+    }
+
     const supplementsByWorker = buildSupplementsByWorker(supplementsResult.rows, weekEndingDate);
     const payrollNumber = (site.certified_payroll_count || 0) + 1;
     const flatten = parseFlattenFlag(req);

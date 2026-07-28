@@ -156,6 +156,7 @@ describe('certified payroll company checks pipeline', () => {
     assert.equal(parsed.grossPay, 1000);
     assert.equal(parsed.federalWithholding, 100);
     assert.equal(parsed.fica, 70);
+    assert.equal(parsed.reimbursementAmount, 0);
     assert.equal(parsed.otherDeductions[0].label, 'Health Insurance');
     assert.equal(parsed.isEstimate, false);
   });

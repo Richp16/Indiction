@@ -229,6 +229,7 @@ function groupWorkersFromHours(hoursRows) {
         paychexWorkerNumber: row.identifying_number || '',
         rate: Number(row.pay_rate) || 0,
         laborClassification: row.labor_classification || '',
+        needsClassification: !row.labor_classification,
         wh347WorkerType: toWh347WorkerType(row.worker_type),
         entries: [],
       });
@@ -256,10 +257,13 @@ function buildSupplementFromPaychex({ checkData, site, worker, mapped = null }) 
   const other = mapped
     ? { amount: mapped.otherAmount, label: mapped.otherLabel }
     : mergeOtherDeductions(checkData.otherDeductions);
+  // Taxable gross only — reimbursements are excluded upstream in parseCheckForSupplement.
   const grossAllWork = mapped?.grossAllWork ?? checkData.grossPay;
   const withholding = mapped?.withholding ?? checkData.federalWithholding;
-  // WH-347 rule: FICA = 7.65% of gross ALL WORK, never Paychex's reported FICA.
+  // WH-347 rule: FICA = 7.65% of taxable gross ALL WORK, never Paychex's reported FICA.
   const fica = computeWh347Fica(grossAllWork);
+  const reimbursementAmount =
+    mapped?.reimbursementAmount ?? checkData.reimbursementAmount ?? 0;
   return {
     worker_id: worker.workerId,
     worker_name: worker.workerName,
@@ -273,6 +277,7 @@ function buildSupplementFromPaychex({ checkData, site, worker, mapped = null }) 
     deduction_other: other.amount,
     deduction_other_label: other.label,
     net_pay: mapped?.netPay ?? checkData.netPay,
+    reimbursement_amount: roundMoney(reimbursementAmount),
     is_estimated: false,
     source: 'paychex',
     paycheck_id: mapped?.paycheckId || null,
@@ -387,6 +392,10 @@ function formatSupplementResponse(row) {
     worker_name: row.worker_name,
     paychex_worker_number: row.paychex_worker_number,
     classification: row.classification || row.labor_classification || '',
+    needsClassification: Boolean(
+      row.needsClassification ??
+        !(row.classification || row.labor_classification)
+    ),
     week_ending_date: row.week_ending_date,
     wage_determination_no: row.wage_determination_no ?? '',
     fringe_benefit_credit:
@@ -728,6 +737,7 @@ async function buildSupplementRows({
         ...saved,
         worker_name: worker.workerName,
         classification: worker.laborClassification,
+        needsClassification: worker.needsClassification,
         source: 'paychex',
         paycheck_id: supplementRow.paycheck_id,
         paychex_check_worker_id: supplementRow.paychex_check_worker_id,
@@ -744,6 +754,7 @@ async function buildSupplementRows({
         withholding: mapped.withholding,
         fica: mapped.fica,
         netPay: mapped.netPay,
+        needsClassification: worker.needsClassification,
       });
       continue;
     }
@@ -753,6 +764,7 @@ async function buildSupplementRows({
         ...existing,
         worker_name: existing.worker_name || worker.workerName,
         classification: worker.laborClassification,
+        needsClassification: worker.needsClassification,
         source: 'saved',
       });
       if (formatted.needsManualWithholding) needsManualWithholding = true;
@@ -763,6 +775,7 @@ async function buildSupplementRows({
         paychexWorkerId: worker.paychexWorkerId || null,
         paycheckId: null,
         source: 'saved',
+        needsClassification: worker.needsClassification,
       });
       continue;
     }
@@ -804,6 +817,7 @@ async function buildSupplementRows({
       ...saved,
       worker_name: worker.workerName,
       classification: worker.laborClassification,
+      needsClassification: worker.needsClassification,
       source: supplementRow.source,
       needs_manual_withholding: supplementRow.needs_manual_withholding,
     });
@@ -820,6 +834,7 @@ async function buildSupplementRows({
       withholding: null,
       fica: supplementRow.deduction_fica,
       netPay: null,
+      needsClassification: worker.needsClassification,
     });
   }
 

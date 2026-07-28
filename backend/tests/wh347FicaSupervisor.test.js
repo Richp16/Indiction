@@ -122,5 +122,33 @@ describe('Supervisors are excluded from WH-347 workers', () => {
     assert.equal(workers.length, 1);
     assert.equal(workers[0].workerId, 'w-lab');
     assert.equal(workers[0].laborClassification, 'Labor');
+    assert.equal(workers[0].needsClassification, false);
+  });
+
+  it('groupWorkersFromHours sets needsClassification when classification is missing', () => {
+    const workers = groupWorkersFromHours([
+      {
+        ...baseRow,
+        id: 'w-missing',
+        first_name: 'Manuel',
+        last_name: 'Calderon',
+        labor_classification: null,
+      },
+      {
+        ...baseRow,
+        id: 'w-ok',
+        first_name: 'Lena',
+        last_name: 'Labor',
+        labor_classification: 'Laborer',
+      },
+    ]);
+
+    assert.equal(workers.length, 2);
+    const missing = workers.find((w) => w.workerId === 'w-missing');
+    const ok = workers.find((w) => w.workerId === 'w-ok');
+    assert.equal(missing.needsClassification, true);
+    assert.equal(missing.laborClassification, '');
+    assert.equal(ok.needsClassification, false);
+    assert.equal(ok.laborClassification, 'Laborer');
   });
 });

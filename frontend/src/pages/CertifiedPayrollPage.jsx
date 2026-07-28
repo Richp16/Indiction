@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { apiPatch, apiPost, apiPostDownload } from '../api/client';
+import { apiGet, apiPatch, apiPost, apiPostDownload } from '../api/client';
 import DailyHourLogSkeleton from './certifiedPayroll/DailyHourLogSkeleton';
 import Wh347SupplementSkeleton from './certifiedPayroll/Wh347SupplementSkeleton';
 import { useCertifiedPayrollData } from './certifiedPayroll/useCertifiedPayrollData';
@@ -163,6 +163,24 @@ export default function CertifiedPayrollPage() {
   const [savedWorkerId, setSavedWorkerId] = useState('');
   const [a11yStatus, setA11yStatus] = useState('');
   const [contractorRole, setContractorRole] = useState('prime'); // 'prime' | 'sub'
+  const [classifications, setClassifications] = useState([]);
+  const [classificationSavingId, setClassificationSavingId] = useState('');
+  const [classificationErrors, setClassificationErrors] = useState({});
+
+  useEffect(() => {
+    if (!token) return undefined;
+    let cancelled = false;
+    apiGet('/api/labor-classifications', token)
+      .then((rows) => {
+        if (!cancelled) setClassifications(rows || []);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || 'Failed to load labor classifications');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   useEffect(() => {
     if (isLoadingPageData) {
@@ -178,10 +196,14 @@ export default function CertifiedPayrollPage() {
     const map = new Map();
     for (const row of hoursRows) {
       if (!map.has(row.id)) {
+        const classification = row.labor_classification || '';
         map.set(row.id, {
           workerId: row.id,
           workerName: `${row.last_name || ''}, ${row.first_name || ''}`,
-          classification: row.labor_classification || '',
+          classification,
+          needsClassification: Boolean(
+            row.needs_classification ?? row.needsClassification ?? !classification
+          ),
           workerType: normalizeWorkerType(row.worker_type),
           rate: Number(row.pay_rate) || 0,
           entries: [],
@@ -191,6 +213,12 @@ export default function CertifiedPayrollPage() {
     }
     return [...map.values()];
   }, [hoursRows]);
+
+  const workersMissingClassification = useMemo(
+    () => grouped.filter((row) => row.needsClassification),
+    [grouped]
+  );
+  const hasMissingClassifications = workersMissingClassification.length > 0;
 
   async function toggleWorkerType(workerId, currentType) {
     const nextType = currentType === 'J' ? 'RA' : 'J';
@@ -207,7 +235,118 @@ export default function CertifiedPayrollPage() {
     }
   }
 
+  async function assignWorkerClassification(workerId, laborClassificationId) {
+    if (!laborClassificationId) return;
+
+    const selected = classifications.find(
+      (c) => String(c.id) === String(laborClassificationId)
+    );
+    const name = selected?.name || '';
+
+    setClassificationErrors((prev) => {
+      const next = { ...prev };
+      delete next[workerId];
+      return next;
+    });
+    setClassificationSavingId(workerId);
+    setError('');
+
+    // Optimistic update — collapse dropdown to plain text like other rows.
+    setHoursRows((rows) =>
+      rows.map((row) =>
+        row.id === workerId
+          ? {
+              ...row,
+              labor_classification: name,
+              needs_classification: false,
+              needsClassification: false,
+            }
+          : row
+      )
+    );
+    setSuppRows((rows) =>
+      rows.map((row) =>
+        row.worker_id === workerId
+          ? { ...row, classification: name, needsClassification: false }
+          : row
+      )
+    );
+
+    try {
+      await apiPatch(
+        `/api/workers/${workerId}/labor-classification`,
+        { laborClassificationId: Number(laborClassificationId) },
+        token
+      );
+    } catch (err) {
+      setHoursRows((rows) =>
+        rows.map((row) =>
+          row.id === workerId
+            ? {
+                ...row,
+                labor_classification: '',
+                needs_classification: true,
+                needsClassification: true,
+              }
+            : row
+        )
+      );
+      setSuppRows((rows) =>
+        rows.map((row) =>
+          row.worker_id === workerId
+            ? { ...row, classification: '', needsClassification: true }
+            : row
+        )
+      );
+      setClassificationErrors((prev) => ({
+        ...prev,
+        [workerId]: err.message || 'Failed to save classification',
+      }));
+    } finally {
+      setClassificationSavingId('');
+    }
+  }
+
+  function renderClassificationCell(row) {
+    if (!row.needsClassification) {
+      return row.classification || '—';
+    }
+
+    return (
+      <div>
+        <select
+          value=""
+          onChange={(e) => assignWorkerClassification(row.workerId, e.target.value)}
+          disabled={classificationSavingId === row.workerId}
+          style={{ ...selectStyle, minWidth: 160 }}
+          aria-label={`Assign classification for ${row.workerName}`}
+          data-testid={`classification-select-${row.workerId}`}
+        >
+          <option value="">Select classification…</option>
+          {classifications.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        {classificationErrors[row.workerId] && (
+          <div style={{ color: 'crimson', fontSize: 12, marginTop: 4 }}>
+            {classificationErrors[row.workerId]}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   async function exportPdf() {
+    if (hasMissingClassifications) {
+      throw new Error(
+        `Assign a labor classification before generating WH-347 for: ${workersMissingClassification
+          .map((w) => w.workerName)
+          .join('; ')}`
+      );
+    }
+
     const site = sites.find((s) => s.id === selectedSite);
     // QA: append ?flatten=false to the Certified Payroll URL for an editable PDF.
     const flattenParam = new URLSearchParams(window.location.search).get('flatten');
@@ -480,11 +619,34 @@ export default function CertifiedPayrollPage() {
           type="button"
           style={primaryButtonStyle}
           onClick={() => exportPdf().catch((err) => setError(err.message))}
-          disabled={!selectedSite || !weekEndingDate || isLoadingPageData}
+          disabled={
+            !selectedSite ||
+            !weekEndingDate ||
+            isLoadingPageData ||
+            hasMissingClassifications
+          }
+          title={
+            hasMissingClassifications
+              ? 'Assign a classification to every worker before exporting WH-347'
+              : undefined
+          }
+          data-testid="export-wh347-button"
         >
           Export WH-347 PDF
         </button>
       </div>
+
+      {hasMissingClassifications && !isLoadingPageData && (
+        <div
+          className="alert alert-warning"
+          style={warningBannerStyle}
+          data-testid="missing-classification-banner"
+        >
+          Assign a labor classification for{' '}
+          {workersMissingClassification.map((w) => w.workerName).join('; ')} before
+          generating WH-347.
+        </div>
+      )}
 
       {(checksError) && (
         <div
@@ -599,9 +761,13 @@ export default function CertifiedPayrollPage() {
                           <td style={workerNameCellStyle}>{row.workerName}</td>
                           <td
                             style={tdStyle}
-                            title={row.classification ? undefined : 'Set in Classifications'}
+                            title={
+                              row.needsClassification
+                                ? 'Assign a classification to include this worker on WH-347'
+                                : undefined
+                            }
                           >
-                            {row.classification || '—'}
+                            {renderClassificationCell(row)}
                           </td>
                           <td style={{ ...tdStyle, textAlign: 'center' }}>
                             <button
@@ -666,9 +832,17 @@ export default function CertifiedPayrollPage() {
                         <td style={workerNameCellStyle}>{row.worker_name}</td>
                         <td
                           style={tdStyle}
-                          title={row.classification ? undefined : 'Set in Classifications'}
+                          title={
+                            row.needsClassification
+                              ? 'Assign a classification in the Daily Hour Log table'
+                              : undefined
+                          }
                         >
-                          {row.classification || '—'}
+                          {row.needsClassification ? (
+                            <span style={{ color: '#92400e' }}>Needs classification</span>
+                          ) : (
+                            row.classification || '—'
+                          )}
                         </td>
                         {[
                           'wage_determination_no',

@@ -3,6 +3,7 @@ const { formatPaychexErrorForLog } = require('./paychexErrors');
 const { roundMoney } = require('./payrollTaxEstimate');
 const { resolveComponentLabel } = require('./paychexPayComponents');
 const { isPaychexPayPeriodId } = require('./paychexIds');
+const { isReimbursementComponentName } = require('../config/paychex');
 const {
   getCompanyChecksByPayPeriod,
   getWorkerChecksByPayPeriod,
@@ -273,6 +274,48 @@ function getCheckGrossAmount(check) {
   return earnings.reduce((sum, item) => sum + toNumber(item.amount ?? item.value ?? item.payAmount), 0);
 }
 
+/**
+ * True when an earnings/payComponents line is a non-taxable reimbursement/expense.
+ */
+function isReimbursementComponent(item, componentMap = new Map()) {
+  const label = String(resolveComponentLabel(item, componentMap) || '');
+  const type = String(item.componentType ?? item.type ?? item.classificationType ?? '').toUpperCase();
+  if (type === 'REIMBURSEMENT') return true;
+  if (isReimbursementComponentName(label)) return true;
+  return /REIMBURSEMENT|REIMB|EXPENSE/i.test(label);
+}
+
+/**
+ * Split check earnings into taxable gross vs reimbursements.
+ * Prefers the earnings/payComponents breakdown when present so reimbursements can
+ * be excluded; falls back to grossEarnings/grossPay as fully taxable when there
+ * is no line-item breakdown.
+ */
+function splitCheckEarnings(check, componentMap = new Map()) {
+  const earnings = check.earnings || check.payComponents || [];
+  let taxableGross = 0;
+  let reimbursementAmount = 0;
+
+  if (Array.isArray(earnings) && earnings.length > 0) {
+    for (const item of earnings) {
+      const amount = toNumber(item.amount ?? item.value ?? item.payAmount);
+      if (isReimbursementComponent(item, componentMap)) {
+        reimbursementAmount += amount;
+      } else {
+        taxableGross += amount;
+      }
+    }
+  } else if (check.grossEarnings != null || check.grossPay != null) {
+    // No component breakdown — can't split; treat whole amount as taxable.
+    taxableGross = toNumber(check.grossEarnings ?? check.grossPay);
+  }
+
+  return {
+    taxableGross: roundMoney(taxableGross),
+    reimbursementAmount: roundMoney(reimbursementAmount),
+  };
+}
+
 function indexChecksByWorker(checks) {
   const map = {};
 
@@ -313,8 +356,9 @@ function isEmployeeTaxEntry(tax) {
 function parseCheckForSupplement(check, componentMap = new Map()) {
   if (!check) return null;
 
-  const grossPay = roundMoney(getCheckGrossAmount(check));
-  const netPay = roundMoney(check.netPay ?? check.netEarnings ?? check.netPayAmount ?? 0);
+  const { taxableGross, reimbursementAmount } = splitCheckEarnings(check, componentMap);
+  const grossPay = taxableGross;
+  const checkNetPay = roundMoney(check.netPay ?? check.netEarnings ?? check.netPayAmount ?? 0);
 
   const taxes = (check.taxes ?? check.taxWithholdings ?? check.taxDeductions ?? []).filter(
     isEmployeeTaxEntry
@@ -326,6 +370,8 @@ function parseCheckForSupplement(check, componentMap = new Map()) {
       .reduce((sum, tax) => sum + toNumber(tax.amount ?? tax.value ?? tax.payAmount), 0)
   );
 
+  // Existing FICA extraction from Paychex tax lines — formula unchanged.
+  // WH-347 supplements recompute FICA as 7.65% of this taxable grossPay.
   const fica = roundMoney(
     taxes
       .filter((tax) => /SOCIAL|MEDICARE/i.test(tax.taxType ?? tax.type ?? tax.name ?? ''))
@@ -353,10 +399,20 @@ function parseCheckForSupplement(check, componentMap = new Map()) {
     }
   }
 
-  if (!loggedParsedCheck && grossPay > 0) {
+  const otherTotal = otherDeductions.reduce((sum, item) => sum + item.amount, 0);
+  const computedNetPay = roundMoney(
+    taxableGross - federalWithholding - fica - otherTotal + reimbursementAmount
+  );
+  // Prefer Paychex net only when there is no reimbursement to re-add; otherwise
+  // recompute so reimbursements are included in net without being taxed.
+  const netPay =
+    reimbursementAmount > 0 ? computedNetPay : checkNetPay || computedNetPay;
+
+  if (!loggedParsedCheck && (grossPay > 0 || reimbursementAmount > 0)) {
     loggedParsedCheck = true;
     console.log('[PaychexChecks] Parsed supplement sample:', {
       grossPay: grossPay.toFixed(2),
+      reimbursementAmount: reimbursementAmount.toFixed(2),
       netPay: netPay.toFixed(2),
       federalWithholding: federalWithholding.toFixed(2),
       fica: fica.toFixed(2),
@@ -364,17 +420,17 @@ function parseCheckForSupplement(check, componentMap = new Map()) {
     });
   }
 
-  if (grossPay <= 0 && netPay <= 0) {
+  if (grossPay <= 0 && netPay <= 0 && reimbursementAmount <= 0) {
     return null;
   }
 
   return {
     grossPay,
-    netPay: netPay || roundMoney(grossPay - federalWithholding - fica -
-      otherDeductions.reduce((sum, item) => sum + item.amount, 0)),
+    netPay,
     federalWithholding,
     fica,
     otherDeductions,
+    reimbursementAmount,
     isEstimate: false,
   };
 }
@@ -478,6 +534,8 @@ module.exports = {
   extractPayPeriodFromCheck,
   extractWorkerIdFromCheck,
   getCheckGrossAmount,
+  splitCheckEarnings,
+  isReimbursementComponent,
   indexChecksByWorker,
   filterChecksForPayPeriod,
   parseCheckForSupplement,

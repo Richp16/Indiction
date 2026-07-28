@@ -64,6 +64,7 @@ describe('certified payroll Paychex check mapping', () => {
     assert.equal(mapped.grossAllWork, 1000);
     assert.equal(mapped.withholding, 100);
     assert.equal(mapped.fica, 70);
+    assert.equal(mapped.reimbursementAmount, 0);
     assert.equal(mapped.otherAmount, 25);
     assert.equal(mapped.otherLabel, 'Health Insurance');
     assert.equal(mapped.totalDeductions, 195);

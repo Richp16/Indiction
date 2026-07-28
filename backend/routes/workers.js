@@ -8,6 +8,76 @@ const router = express.Router();
 
 const OT_WEEKLY_CAP = 40;
 
+/**
+ * Set workers.labor_classification_id. Works for active and terminated workers.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {{ classificationId: unknown }} options
+ */
+async function updateWorkerLaborClassification(req, res, { classificationId }) {
+  let laborClassificationId = null;
+
+  if (classificationId != null && classificationId !== '') {
+    const parsed = Number(classificationId);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return res.status(400).json({
+        message: 'laborClassificationId must be a positive integer or null',
+      });
+    }
+
+    const classificationResult = await query(
+      `SELECT id, name FROM labor_classifications WHERE id = $1`,
+      [parsed]
+    );
+    if (classificationResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Classification not found' });
+    }
+    laborClassificationId = parsed;
+  }
+
+  // No is_active filter — terminated workers must be assignable for WH-347.
+  const result = await query(
+    `UPDATE workers
+     SET labor_classification_id = $1
+     WHERE id = $2
+     RETURNING
+       id,
+       employee_code,
+       first_name,
+       last_name,
+       is_active,
+       labor_classification_id`,
+    [laborClassificationId, req.params.id]
+  );
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ message: 'Worker not found' });
+  }
+
+  const worker = result.rows[0];
+  let classificationName = null;
+  if (worker.labor_classification_id) {
+    const nameResult = await query(
+      `SELECT name FROM labor_classifications WHERE id = $1`,
+      [worker.labor_classification_id]
+    );
+    classificationName = nameResult.rows[0]?.name || null;
+  }
+
+  return res.json({
+    id: worker.id,
+    employeeCode: worker.employee_code,
+    firstName: worker.first_name,
+    lastName: worker.last_name,
+    isActive: worker.is_active,
+    laborClassificationId: worker.labor_classification_id,
+    laborClassificationName: classificationName,
+    classification: classificationName
+      ? { id: worker.labor_classification_id, name: classificationName }
+      : null,
+  });
+}
+
 router.get('/assignments', requireRole('system_admin', 'payroll_admin'), async (_req, res) => {
   try {
     const result = await query(
@@ -43,62 +113,24 @@ router.patch(
   requireRole('system_admin', 'payroll_admin'),
   async (req, res) => {
     try {
-      const { classificationId } = req.body;
-      let laborClassificationId = null;
+      await updateWorkerLaborClassification(req, res, {
+        classificationId:
+          req.body?.classificationId ?? req.body?.laborClassificationId ?? null,
+      });
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  }
+);
 
-      if (classificationId != null && classificationId !== '') {
-        const parsed = Number(classificationId);
-        if (!Number.isInteger(parsed) || parsed <= 0) {
-          return res.status(400).json({ message: 'classificationId must be a positive integer or null' });
-        }
-
-        const classificationResult = await query(
-          `SELECT id, name FROM labor_classifications WHERE id = $1`,
-          [parsed]
-        );
-        if (classificationResult.rows.length === 0) {
-          return res.status(404).json({ message: 'Classification not found' });
-        }
-        laborClassificationId = parsed;
-      }
-
-      const result = await query(
-        `UPDATE workers
-         SET labor_classification_id = $1
-         WHERE id = $2
-         RETURNING
-           id,
-           employee_code,
-           first_name,
-           last_name,
-           labor_classification_id`,
-        [laborClassificationId, req.params.id]
-      );
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({ message: 'Worker not found' });
-      }
-
-      const worker = result.rows[0];
-      let classificationName = null;
-      if (worker.labor_classification_id) {
-        const nameResult = await query(
-          `SELECT name FROM labor_classifications WHERE id = $1`,
-          [worker.labor_classification_id]
-        );
-        classificationName = nameResult.rows[0]?.name || null;
-      }
-
-      res.json({
-        id: worker.id,
-        employeeCode: worker.employee_code,
-        firstName: worker.first_name,
-        lastName: worker.last_name,
-        laborClassificationId: worker.labor_classification_id,
-        laborClassificationName: classificationName,
-        classification: classificationName
-          ? { id: worker.labor_classification_id, name: classificationName }
-          : null,
+router.patch(
+  '/:id/labor-classification',
+  requireRole('system_admin', 'payroll_admin'),
+  async (req, res) => {
+    try {
+      await updateWorkerLaborClassification(req, res, {
+        classificationId:
+          req.body?.laborClassificationId ?? req.body?.classificationId ?? null,
       });
     } catch (error) {
       res.status(500).json({ message: error.message });

@@ -92,6 +92,7 @@ function mapPaychexCheckToSupplementFields(rawCheck, componentMap = new Map()) {
     otherLabel: other.label,
     totalDeductions,
     netPay: parsed.netPay,
+    reimbursementAmount: parsed.reimbursementAmount || 0,
     earnings: normalized?.earnings || [],
     deductions: normalized?.deductions || [],
     taxes: normalized?.taxes || [],
