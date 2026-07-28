@@ -23,28 +23,25 @@ describe('payrollAdjustments helpers (unit)', () => {
     assert.equal(parseMoney(null), 0);
   });
 
-  it('resolveMoneyFields adds base reimbursement + adjustment; short pay from adjustment', () => {
+  it('resolveMoneyFields adds base reimbursement + adjustment (no short pay)', () => {
     const resolved = resolveMoneyFields({
       base_reimbursement_amount: 40,
       adjustment_reimbursement_amount: 60,
-      short_pay_amount: 15,
       adjustment_id: 'some-uuid',
     });
     assert.equal(resolved.baseReimbursement, 40);
     assert.equal(resolved.reimbursement, 100);
-    assert.equal(resolved.shortPay, 15);
     assert.equal(resolved.hasAdjustment, true);
   });
 
-  it('computeTotalAmount applies reimbursement and short pay', () => {
+  it('computeTotalAmount applies reimbursement without short pay', () => {
     assert.equal(
       computeTotalAmount({
         hourlyHours: 10,
         hourlyRate: 20,
         reimbursementAmount: 50,
-        shortPayAmount: 10,
       }),
-      240
+      250
     );
   });
 });
@@ -149,7 +146,7 @@ describe('payrollAdjustments persistence (integration)', () => {
     assert.equal(map.get(String(workerId)).short_pay_amount, 10);
   });
 
-  it('SPI aggregation uses base + adjustment for reimbursement and short pay', async (t) => {
+  it('SPI emits Hourly + Reimbursement component rows from base + adjustment', async (t) => {
     if (skip) {
       t.skip('DATABASE_URL / payroll_adjustments unavailable');
       return;
@@ -157,7 +154,6 @@ describe('payrollAdjustments persistence (integration)', () => {
 
     const baseReimb = 30;
     const adjReimb = 70;
-    const shortPay = 12;
     const hourlyHours = 40;
 
     const inserted = await query(
@@ -171,34 +167,30 @@ describe('payrollAdjustments persistence (integration)', () => {
     createdTimeEntryIds.push(inserted.rows[0].id);
 
     await upsertAdjustments(payPeriodId, [
-      { workerId, reimbursementAmount: adjReimb, shortPayAmount: shortPay },
+      { workerId, reimbursementAmount: adjReimb, shortPayAmount: 0 },
     ]);
 
     const { rows, notFound } = await generateSPIRows(payPeriodId);
     assert.ok(!notFound);
 
     const workerRows = rows.filter(
-      (r) => String(r['Employee ID']) === String(employeeCode)
+      (r) => String(r['Worker ID']) === String(employeeCode)
     );
-    assert.equal(workerRows.length, 1);
+    assert.equal(workerRows.length, 2);
 
-    const row = workerRows[0];
-    assert.equal(row['Reimbursement Amount'], formatMoneyExpected(baseReimb + adjReimb));
-    assert.equal(row['Short Pay Amount'], formatMoneyExpected(shortPay));
-
-    const expectedTotal = computeTotalAmount({
-      hourlyHours,
-      overtimeHours: 0,
-      hourlyRate: RATE,
-      reimbursementAmount: baseReimb + adjReimb,
-      shortPayAmount: shortPay,
-    });
-    assert.equal(Number(row['Total Amount']), expectedTotal);
+    const hourly = workerRows.find((r) => r['Pay Component'] === 'Hourly');
+    const reimb = workerRows.find((r) => r['Pay Component'] === 'Reimbursement');
+    assert.ok(hourly);
+    assert.ok(reimb);
+    assert.equal(hourly.Hours, String(hourlyHours));
+    assert.equal(hourly.Rate, String(RATE));
+    assert.equal(reimb.Amount, String(baseReimb + adjReimb));
+    assert.equal(hourly['Check Seq Number'], reimb['Check Seq Number']);
 
     const { csvString } = generateSPICSV(workerRows, '70205967');
     assert.equal(csvString.split('\n')[0], EXPORT_CSV_HEADERS.join(','));
-    assert.match(csvString, new RegExp(formatMoneyExpected(baseReimb + adjReimb)));
-    assert.match(csvString, new RegExp(formatMoneyExpected(shortPay)));
+    assert.match(csvString, new RegExp(String(baseReimb + adjReimb)));
+    assert.doesNotMatch(csvString, /Short Pay/i);
   });
 
   it('asAbsolute converts cell totals into reimbursement deltas', async (t) => {
@@ -219,7 +211,3 @@ describe('payrollAdjustments persistence (integration)', () => {
     assert.equal(map.get(String(workerId)).reimbursement_amount, 20);
   });
 });
-
-function formatMoneyExpected(value) {
-  return Number(value).toFixed(2);
-}

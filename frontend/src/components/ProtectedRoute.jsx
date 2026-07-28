@@ -28,6 +28,7 @@ function AppLayout({ children }) {
               <Link to="/company-settings">Company Settings</Link>
               <Link to="/admin/job-sites">Job Sites</Link>
               <Link to="/admin/classifications">Classifications</Link>
+              <Link to="/admin/pay-rates">Pay Rates</Link>
               <Link to="/admin/users">Manage Users</Link>
             </>
           )}

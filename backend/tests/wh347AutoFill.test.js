@@ -22,19 +22,19 @@ describe('WH-347 header auto-fill helpers', () => {
     assert.equal(formatLongDate('2026-01-05'), '01/05/2026');
   });
 
-  it('statement required checkboxes are the visual top 3 cert items + last above remarks', () => {
+  it('statement checkBoxes are one field per row in visual top-to-bottom order', () => {
     const boxes = wh347FieldMap.statementPage.checkBoxes;
+    assert.equal(boxes.length, 6);
     assert.deepEqual(boxes, [
-      'Check Box1',
-      'Check Box2',
-      'Check Box3',
-      'Check Box4',
-      'Check Box5',
-      'Check Box6',
+      'Check Box1', // stmt 1
+      'Check Box3', // stmt 2
+      'Check Box4', // stmt 3 classifications
+      'Check Box2', // stmt 4 apprentices
+      'Check Box5', // stmt 5 fringe
+      'Check Box6', // stmt 6
     ]);
-    // Required by visual Y order (not array index): 1, 3, 4, 6
-    const required = new Set(['Check Box1', 'Check Box3', 'Check Box4', 'Check Box6']);
-    assert.ok(required.has('Check Box4'), 'classifications = Check Box4');
-    assert.ok(!required.has('Check Box2'), 'apprentices = Check Box2 must stay unchecked');
+    // Indexes 1,2,3,6 → fields Check Box1,3,4,6; apprentices (index 4) stays off
+    assert.equal(boxes[3], 'Check Box2');
+    assert.equal(boxes[2], 'Check Box4');
   });
 });

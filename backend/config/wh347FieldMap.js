@@ -364,13 +364,15 @@ const wh347FieldMap = {
     telPart1: 'Telephone Number part 1',
     telPart2: 'Telephone Number part 2',
     email: 'EMAIL ADDRESS',
+    // One AcroForm field per statement, in visual top-to-bottom order.
+    // Adobe's field numbers are NOT sequential by Y (Box3/4 sit above Box2).
     checkBoxes: [
-      'Check Box1',
-      'Check Box2',
-      'Check Box3',
-      'Check Box4',
-      'Check Box5',
-      'Check Box6',
+      'Check Box1', // Statement 1 — payroll information
+      'Check Box3', // Statement 2 — all regular payrolls
+      'Check Box4', // Statement 3 — classifications reported
+      'Check Box2', // Statement 4 — apprentices (usually unchecked)
+      'Check Box5', // Statement 5 — fringe benefits (usually unchecked)
+      'Check Box6', // Statement 6 — paid full weekly wages
     ],
   },
 };

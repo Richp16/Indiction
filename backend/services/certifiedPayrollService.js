@@ -85,7 +85,7 @@ async function loadHoursRowsForDateRange(jobSiteId, startDate, endDate) {
        w.employee_code AS identifying_number,
        w.paychex_worker_id,
        w.worker_type,
-       COALESCE(w.standard_rate, 0) AS pay_rate,
+       COALESCE(wjsr.rate, w.standard_rate, 0) AS pay_rate,
        lc.name AS labor_classification,
        d.id AS entry_id,
        d.date_worked::text AS entry_date,
@@ -94,13 +94,15 @@ async function loadHoursRowsForDateRange(jobSiteId, startDate, endDate) {
      FROM daily_time_entries d
      JOIN workers w ON d.worker_id = w.id
      LEFT JOIN labor_classifications lc ON w.labor_classification_id = lc.id
+     LEFT JOIN worker_job_site_rates wjsr
+       ON wjsr.worker_id = w.id AND wjsr.job_site_id = d.job_site_id
      WHERE d.job_site_id = $1
        AND d.date_worked BETWEEN $2 AND $3
        AND d.pay_code IN ('REGULAR','HOURLY','Hourly','Regular','OT','OVERTIME','Overtime','DT','DOUBLETIME')
      GROUP BY
        w.id, w.first_name, w.last_name,
        w.employee_code, w.paychex_worker_id, w.worker_type, w.standard_rate,
-       lc.name, d.id, d.date_worked, d.pay_code
+       wjsr.rate, lc.name, d.id, d.date_worked, d.pay_code
      ORDER BY w.last_name, d.date_worked`,
     [jobSiteId, startDate, endDate]
   );

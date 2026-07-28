@@ -2,78 +2,80 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiGet, apiPostDownload, apiDelete, apiPut } from '../api/client';
 
-const OT_EARNINGS_MULTIPLIER = 1.5;
-
 function parseNumericField(value) {
   if (value == null || value === '') return 0;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function formatHours(value) {
-  return parseNumericField(value).toFixed(1);
-}
-
-function formatMoney(value) {
-  return parseNumericField(value).toFixed(2);
-}
-
-function formatMoneyDisplay(value) {
-  const amount = parseNumericField(value);
-  return amount.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function recomputeTotalAmount(row) {
-  const hourly = parseNumericField(row['Hourly Hours']);
-  const overtime = parseNumericField(row['Overtime Hours']);
-  const rate = parseNumericField(row['Hourly Rate']);
-  const reimbursement = parseNumericField(row['Reimbursement Amount']);
-  const shortPay = parseNumericField(row['Short Pay Amount']);
-  // Edited overtime column uses 1.5×; initial server rows already baked DT at 2× into Total Amount.
-  return formatMoney(
-    hourly * rate + overtime * rate * OT_EARNINGS_MULTIPLIER + reimbursement - shortPay
-  );
+function formatPaychexNumber(value) {
+  const n = parseNumericField(value);
+  if (!Number.isFinite(n)) return '';
+  const rounded = Math.round(n * 10000) / 10000;
+  if (Object.is(rounded, -0)) return '0';
+  if (Number.isInteger(rounded)) return String(rounded);
+  return String(rounded);
 }
 
 function getRowIssues(row) {
   const issues = [];
-  const employeeId = row.worker_id ?? row['Employee ID'];
-  const name = row.Name ?? row._employeeName;
-  const hourlyHours = parseNumericField(row['Hourly Hours']);
-  const overtimeHours = parseNumericField(row['Overtime Hours']);
-  const reimbursement = parseNumericField(row['Reimbursement Amount']);
+  const workerId = row['Worker ID'] ?? row.worker_id;
+  const component = row['Pay Component'];
+  const hours = parseNumericField(row.Hours);
+  const amount = parseNumericField(row.Amount);
 
-  if (!name || String(name).trim() === '') {
-    issues.push('Name is blank');
+  if (!workerId || String(workerId).trim() === '') {
+    issues.push('Worker ID is blank');
   }
-  if (!employeeId || String(employeeId).trim() === '') {
-    issues.push('Employee ID is blank');
+  if (!component || String(component).trim() === '') {
+    issues.push('Pay Component is blank');
   }
-  if (hourlyHours + overtimeHours <= 0 && reimbursement <= 0) {
-    issues.push('Hours / reimbursement blank');
+  if ((component === 'Hourly' || component === 'Overtime') && hours <= 0) {
+    issues.push('Hours blank');
   }
-  if (row._rateMissing && hourlyHours + overtimeHours > 0) {
-    issues.push('Hourly Rate missing');
+  if (component === 'Reimbursement' && amount <= 0) {
+    issues.push('Amount blank');
+  }
+  if (component === 'Hourly' && row._rateMissing) {
+    issues.push('Rate missing');
+  }
+  if (component === 'Overtime' && String(row.Rate ?? '').trim() !== '') {
+    issues.push('Overtime Rate must be blank');
   }
 
   return issues;
 }
 
+/** Match Paychex_Import.csv column order exactly. */
 const TABLE_COLUMNS = [
-  { key: 'Name', label: 'Name', align: 'left' },
-  { key: 'Employee ID', label: 'Employee ID', align: 'right' },
-  { key: 'Total Amount', label: 'Total Amount', align: 'right' },
-  { key: 'Hourly Hours', label: 'Hourly Hours', align: 'right' },
-  { key: 'Hourly Rate', label: 'Hourly Rate', align: 'right' },
-  { key: 'Overtime Hours', label: 'Overtime Hours', align: 'right' },
-  { key: 'Reimbursement Amount', label: 'Reimbursement Amount', align: 'right' },
-  { key: 'Short Pay Amount', label: 'Short Pay Amount', align: 'right' },
+  { key: 'Company ID', label: 'Company ID', align: 'left' },
+  { key: 'Worker ID', label: 'Worker ID', align: 'right' },
+  { key: 'Org', label: 'Org', align: 'left' },
+  { key: 'Job Number', label: 'Job Number', align: 'left' },
+  { key: 'Job Name', label: 'Job Name', align: 'left' },
+  { key: 'Pay Component', label: 'Pay Component', align: 'left' },
+  { key: 'Rate', label: 'Rate', align: 'right' },
+  { key: 'Rate #', label: 'Rate #', align: 'right' },
+  { key: 'Hours', label: 'Hours', align: 'right' },
+  { key: 'Units', label: 'Units', align: 'right' },
+  { key: 'Line Date', label: 'Line Date', align: 'left' },
+  { key: 'Amount', label: 'Amount', align: 'right' },
+  { key: 'Check Seq Number', label: 'Check Seq Number', align: 'right' },
+  { key: 'Override State', label: 'Override State', align: 'left' },
+  { key: 'Override Local', label: 'Override Local', align: 'left' },
+  {
+    key: 'Override Local Jurisdiction',
+    label: 'Override Local Jurisdiction',
+    align: 'left',
+  },
+  { key: 'Labor Override', label: 'Labor Override', align: 'left' },
 ];
+
+function cellDisplay(row, key) {
+  const value = row[key];
+  if (value == null || value === '') return '';
+  return String(value);
+}
 
 export default function PayrollExport({ payPeriodId, token, showInstructions = false }) {
   const { isAdmin } = useAuth();
@@ -88,7 +90,7 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
   const [successMessage, setSuccessMessage] = useState('');
   const [rowPendingDelete, setRowPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  /** workerDbId → pending absolute reimbursement / short pay from the grid */
+  /** workerDbId → pending absolute reimbursement amount */
   const [editedAdjustments, setEditedAdjustments] = useState(() => new Map());
   const cancelButtonRef = useRef(null);
 
@@ -136,52 +138,31 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
   const totalHours = useMemo(
     () =>
       exportRows.reduce((sum, row) => {
-        return (
-          sum +
-          parseNumericField(row['Hourly Hours']) +
-          parseNumericField(row['Overtime Hours'])
-        );
+        const component = row['Pay Component'];
+        if (component === 'Hourly' || component === 'Overtime') {
+          return sum + parseNumericField(row.Hours);
+        }
+        return sum;
       }, 0),
     [exportRows]
   );
 
-  function handleFieldChange(index, field, value) {
+  function handleReimbursementChange(index, value) {
     const row = exportRows[index];
-    if (!row) return;
+    if (!row || row['Pay Component'] !== 'Reimbursement') return;
 
-    let next = { ...row, [field]: value };
-    if (field === 'Employee ID') {
-      next = { ...next, worker_id: value, 'Employee ID': value };
-    }
-    if (
-      field === 'Hourly Hours' ||
-      field === 'Overtime Hours' ||
-      field === 'Hourly Rate' ||
-      field === 'Reimbursement Amount' ||
-      field === 'Short Pay Amount'
-    ) {
-      if (field === 'Hourly Rate') {
-        next._rateMissing = false;
-      }
-      next['Total Amount'] = recomputeTotalAmount(next);
-    }
-
+    const next = { ...row, Amount: value };
     setExportRows((rows) => rows.map((r, i) => (i === index ? next : r)));
 
-    if (
-      (field === 'Reimbursement Amount' || field === 'Short Pay Amount') &&
-      row._workerDbId
-    ) {
+    if (row._workerDbId) {
       setEditedAdjustments((prev) => {
         const map = new Map(prev);
         map.set(String(row._workerDbId), {
-          reimbursementAmount: next['Reimbursement Amount'],
-          shortPayAmount: next['Short Pay Amount'],
+          reimbursementAmount: value,
         });
         return map;
       });
     }
-
     setSuccessMessage('');
   }
 
@@ -197,13 +178,13 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
         ([workerId, values]) => ({
           workerId,
           reimbursementAmount: parseNumericField(values.reimbursementAmount),
-          shortPayAmount: parseNumericField(values.shortPayAmount),
+          shortPayAmount: 0,
         })
       );
 
       await apiPut(`/api/payroll/${payPeriodId}/adjustments`, { adjustments }, token);
       setEditedAdjustments(new Map());
-      setSuccessMessage('Reimbursement and Short Pay changes saved.');
+      setSuccessMessage('Reimbursement changes saved.');
     } catch (err) {
       setError(err.message || 'Unable to save adjustments. Please try again.');
     } finally {
@@ -244,7 +225,7 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
   async function confirmDeleteRow() {
     if (!rowPendingDelete || !payPeriodId) return;
 
-    const { row, index } = rowPendingDelete;
+    const { row } = rowPendingDelete;
     setDeleting(true);
     setError('');
     setSuccessMessage('');
@@ -252,11 +233,13 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
     try {
       await apiDelete(`/api/payroll/${payPeriodId}/row`, token, {
         workerDbId: row._workerDbId,
-        jobSiteId: row._jobSiteId ?? null,
       });
-      setExportRows((rows) => rows.filter((_, i) => i !== index));
+      const workerKey = String(row._workerDbId);
+      setExportRows((rows) =>
+        rows.filter((r) => String(r._workerDbId) !== workerKey)
+      );
       setRowPendingDelete(null);
-      setSuccessMessage('Payroll row deleted.');
+      setSuccessMessage('Worker payroll rows deleted for this pay period.');
     } catch (err) {
       setError(err.message || 'Unable to delete row. Please try again or contact support.');
     } finally {
@@ -302,8 +285,9 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
       <h2>Payroll Export</h2>
 
       <p style={{ color: '#444', maxWidth: 720 }}>
-        One row per worker for the pay period (hours summed across all job sites). Review
-        amounts below, then download the CSV for SPI / Paychex payroll import.
+        Paychex import format: one row per pay component (Hourly by effective rate,
+        Overtime, Reimbursement). Check Seq Number is shared across all rows for the
+        same worker. Review below, then download the CSV for SPI / Paychex Flex import.
       </p>
 
       {showInstructions && isAdmin && (
@@ -364,9 +348,10 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
 
       {!loading && exportRows.length > 0 && (
         <div style={{ overflowX: 'auto', marginTop: '0.5rem' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr>
+                <th style={{ ...thStyle, textAlign: 'left' }}>Worker</th>
                 {TABLE_COLUMNS.map((col) => (
                   <th
                     key={col.key}
@@ -384,116 +369,71 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
             <tbody>
               {exportRows.map((row, index) => {
                 const issues = rowIssues[index];
-                const rowStyle = issues.length > 0 ? { background: '#fff0f0' } : {};
-                const rowKey = `${row._workerDbId ?? row['Employee ID']}-${index}`;
+                const prevSeq =
+                  index > 0 ? exportRows[index - 1]['Check Seq Number'] : null;
+                const seq = row['Check Seq Number'];
+                const isNewWorkerGroup = seq !== prevSeq;
+                const rowStyle = {
+                  ...(issues.length > 0 ? { background: '#fff0f0' } : {}),
+                  ...(isNewWorkerGroup && index > 0
+                    ? { borderTop: '2px solid #94a3b8' }
+                    : {}),
+                };
+                const rowKey = `${row._workerDbId ?? row['Worker ID']}-${row['Pay Component']}-${row.Rate ?? ''}-${index}`;
 
                 return (
                   <tr key={rowKey} style={rowStyle}>
-                    <td style={{ ...tdStyle, textAlign: 'left' }}>
-                      {row.Name ?? row._employeeName}
+                    <td style={{ ...tdStyle, textAlign: 'left', whiteSpace: 'nowrap' }}>
+                      {row._employeeName || '—'}
                     </td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <input
-                        type="text"
-                        value={row.worker_id ?? row['Employee ID'] ?? ''}
-                        onChange={(e) =>
-                          handleFieldChange(index, 'Employee ID', e.target.value)
-                        }
-                        style={{ ...inputStyle, textAlign: 'right' }}
-                      />
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      {formatMoneyDisplay(row['Total Amount'])}
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={row['Hourly Hours'] ?? ''}
-                        onChange={(e) =>
-                          handleFieldChange(index, 'Hourly Hours', e.target.value)
-                        }
-                        onBlur={(e) =>
-                          handleFieldChange(index, 'Hourly Hours', formatHours(e.target.value))
-                        }
-                        style={{ ...inputStyle, width: 72, textAlign: 'right' }}
-                      />
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={row['Hourly Rate'] ?? ''}
-                        onChange={(e) =>
-                          handleFieldChange(index, 'Hourly Rate', e.target.value)
-                        }
-                        onBlur={(e) =>
-                          handleFieldChange(index, 'Hourly Rate', formatMoney(e.target.value))
-                        }
-                        style={{ ...inputStyle, width: 80, textAlign: 'right' }}
-                      />
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={row['Overtime Hours'] ?? ''}
-                        onChange={(e) =>
-                          handleFieldChange(index, 'Overtime Hours', e.target.value)
-                        }
-                        onBlur={(e) =>
-                          handleFieldChange(
-                            index,
-                            'Overtime Hours',
-                            formatHours(e.target.value)
-                          )
-                        }
-                        style={{ ...inputStyle, width: 72, textAlign: 'right' }}
-                      />
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={row['Reimbursement Amount'] ?? ''}
-                        onChange={(e) =>
-                          handleFieldChange(index, 'Reimbursement Amount', e.target.value)
-                        }
-                        onBlur={(e) =>
-                          handleFieldChange(
-                            index,
-                            'Reimbursement Amount',
-                            formatMoney(e.target.value)
-                          )
-                        }
-                        style={{ ...inputStyle, width: 88, textAlign: 'right' }}
-                      />
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={row['Short Pay Amount'] ?? ''}
-                        onChange={(e) =>
-                          handleFieldChange(index, 'Short Pay Amount', e.target.value)
-                        }
-                        onBlur={(e) =>
-                          handleFieldChange(
-                            index,
-                            'Short Pay Amount',
-                            formatMoney(e.target.value)
-                          )
-                        }
-                        style={{ ...inputStyle, width: 88, textAlign: 'right' }}
-                        title="Editable — click Save changes to persist for this pay period"
-                      />
-                    </td>
+                    {TABLE_COLUMNS.map((col) => {
+                      if (
+                        col.key === 'Amount' &&
+                        row['Pay Component'] === 'Reimbursement' &&
+                        isAdmin
+                      ) {
+                        return (
+                          <td key={col.key} style={{ ...tdStyle, textAlign: 'right' }}>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={row.Amount ?? ''}
+                              onChange={(e) =>
+                                handleReimbursementChange(index, e.target.value)
+                              }
+                              onBlur={(e) =>
+                                handleReimbursementChange(
+                                  index,
+                                  formatPaychexNumber(e.target.value)
+                                )
+                              }
+                              style={{ ...inputStyle, width: 88, textAlign: 'right' }}
+                              title="Editable — click Save changes to persist for this pay period"
+                            />
+                          </td>
+                        );
+                      }
+
+                      return (
+                        <td
+                          key={col.key}
+                          style={{
+                            ...tdStyle,
+                            textAlign: col.align,
+                            fontWeight:
+                              col.key === 'Check Seq Number' ? 600 : undefined,
+                          }}
+                        >
+                          {cellDisplay(row, col.key)}
+                        </td>
+                      );
+                    })}
                     {isAdmin && (
                       <td style={tdStyle}>
                         <button
                           type="button"
                           onClick={() => openDeleteConfirm(row, index)}
-                          aria-label={`Delete payroll row for ${row.Name ?? row._employeeName ?? 'employee'}`}
+                          aria-label={`Delete payroll rows for ${row._employeeName ?? row['Worker ID'] ?? 'employee'}`}
                           style={deleteButtonStyle}
                         >
                           Delete
@@ -532,7 +472,7 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
             }
             title={
               hasUnsavedAdjustments
-                ? 'Save reimbursement / short pay changes before downloading'
+                ? 'Save reimbursement changes before downloading'
                 : undefined
             }
           >
@@ -551,12 +491,17 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
         >
           <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
             <h3 id="delete-payroll-row-title" style={{ marginTop: 0 }}>
-              Delete payroll row?
+              Delete worker payroll rows?
             </h3>
             <p style={{ marginBottom: '1.25rem', color: '#444' }}>
-              Are you sure you want to delete this payroll row? This removes all associated
-              time entries for this worker across all job sites in this pay period (hourly and
-              overtime).
+              This removes all associated time entries for{' '}
+              <strong>
+                {rowPendingDelete.row?._employeeName ||
+                  rowPendingDelete.row?.['Worker ID'] ||
+                  'this worker'}
+              </strong>{' '}
+              in this pay period (all Hourly, Overtime, and related entries). Check Seq{' '}
+              {rowPendingDelete.row?.['Check Seq Number'] ?? '—'}.
             </p>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
               <button

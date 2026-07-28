@@ -7,7 +7,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { PDFDocument, StandardFonts } = require('pdf-lib');
+const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+const { drawCheckMark } = require('pdf-lib/cjs/api/operations');
 const { wh347FieldMap } = require('../config/wh347FieldMap');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'wh347-fillable.pdf');
@@ -317,12 +318,59 @@ function setText(ctx, name, value, fitOptions = {}) {
   }
 }
 
-function setCheck(form, name, checked, warnings) {
+/**
+ * Template statement checkboxes use negative-height Rects and AP streams that
+ * redraw a full border square. The WH-347 page already prints those squares, so
+ * regenerating the default pdf-lib appearance looks like two boxes per row.
+ * Normalize the widget rect and use a check-mark-only appearance instead.
+ */
+function normalizeCheckBoxWidgetRect(widget) {
+  const rect = widget.getRectangle();
+  const width = Math.abs(rect.width) || 9;
+  const height = Math.abs(rect.height) || 9;
+  const x = rect.width < 0 ? rect.x + rect.width : rect.x;
+  const y = rect.height < 0 ? rect.y + rect.height : rect.y;
+  widget.setRectangle({ x, y, width, height });
+  return { x, y, width, height };
+}
+
+/** Appearance provider: check mark only (no second border square). */
+function statementCheckOnlyAppearanceProvider(_checkBox, widget) {
+  const { width, height } = widget.getRectangle();
+  const size = Math.min(Math.abs(width), Math.abs(height));
+  const onOps = drawCheckMark({
+    x: Math.abs(width) / 2,
+    y: Math.abs(height) / 2,
+    size: size * 0.45,
+    thickness: 1.35,
+    color: rgb(0, 0, 0),
+  });
+  return {
+    normal: { on: onOps, off: [] },
+    down: { on: onOps, off: [] },
+  };
+}
+
+function applyStatementCheckAppearance(box) {
+  const widgets = box.acroField.getWidgets();
+  for (const widget of widgets) {
+    normalizeCheckBoxWidgetRect(widget);
+    const bs = widget.getOrCreateBorderStyle();
+    bs.setWidth(0);
+  }
+  box.updateAppearances(statementCheckOnlyAppearanceProvider);
+  box.markAsClean();
+}
+
+function setCheck(form, name, checked, warnings, { statementStyle = false } = {}) {
   if (!name) return;
   try {
     const box = form.getCheckBox(name);
     if (checked) box.check();
     else box.uncheck();
+    if (statementStyle) {
+      applyStatementCheckAppearance(box);
+    }
   } catch (err) {
     warnings.push(`check:${name}: ${err.message}`);
     console.warn(`[wh347FormFill] Could not set checkbox "${name}": ${err.message}`);
@@ -508,34 +556,20 @@ function fillStatement(ctx, { company, weekEndingDate, statementCheckBoxes }) {
   setText(ctx, s.telPart1, phone.telPart1, { maxFontSize: 7, minFontSize: 5 });
   setText(ctx, s.telPart2, phone.telPart2, { maxFontSize: 7, minFontSize: 5 });
 
-  // AcroForm names are NOT top-to-bottom. Visual order by Y:
-  //   Check Box1 → payroll info
-  //   Check Box3 → all regular payrolls
-  //   Check Box4 → classifications reported
-  //   Check Box2 → apprentices (leave unchecked by default)
-  //   Check Box5 → fringe (leave unchecked by default)
-  //   Check Box6 → paid full weekly wages (above ADDITIONAL REMARKS)
-  const requiredBoxes = new Set([
-    'Check Box1',
-    'Check Box3',
-    'Check Box4',
-    'Check Box6',
-  ]);
-  const passedIn = new Set(
+  // s.checkBoxes is visual top-to-bottom (one field per statement). Always check
+  // statements 1, 2, 3, and 6; leave 4 (apprentices) and 5 (fringe) unchecked
+  // unless the caller passes them in.
+  const checked = new Set(
     Array.isArray(statementCheckBoxes)
-      ? statementCheckBoxes.map((v) => {
-          const n = Number(v);
-          // Allow 1-based indexes or explicit field names.
-          if (Number.isFinite(n) && n >= 1 && n <= s.checkBoxes.length) {
-            return s.checkBoxes[n - 1];
-          }
-          return String(v);
-        })
+      ? statementCheckBoxes.map((v) => Number(v)).filter((n) => Number.isFinite(n))
       : []
   );
-  const checked = new Set([...passedIn, ...requiredBoxes]);
-  s.checkBoxes.forEach((name) => {
-    setCheck(ctx.form, name, checked.has(name), ctx.warnings);
+  [1, 2, 3, 6].forEach((n) => checked.add(n));
+
+  s.checkBoxes.forEach((name, idx) => {
+    setCheck(ctx.form, name, checked.has(idx + 1), ctx.warnings, {
+      statementStyle: true,
+    });
   });
 }
 

@@ -15,8 +15,7 @@ const {
 } = require('../services/aggregation');
 
 describe('AGGREGATED_SUMMARY_SQL shape', () => {
-  it('groups by worker only — no job site join or column', () => {
-    assert.doesNotMatch(AGGREGATED_SUMMARY_SQL, /job_sites/i);
+  it('groups by worker only — no Job Site column', () => {
     assert.doesNotMatch(AGGREGATED_SUMMARY_SQL, /"jobSite"/);
     assert.match(
       AGGREGATED_SUMMARY_SQL,
@@ -26,6 +25,8 @@ describe('AGGREGATED_SUMMARY_SQL shape', () => {
       AGGREGATED_SUMMARY_SQL,
       /ORDER BY\s+w\.last_name,\s*w\.first_name\s*;/i
     );
+    // Optional per-site rate override join (additive; empty table = no behavior change)
+    assert.match(AGGREGATED_SUMMARY_SQL, /worker_job_site_rates/i);
   });
 
   it('treats HOURLY/REGULAR variants as regular hours', () => {

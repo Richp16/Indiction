@@ -163,6 +163,7 @@ async function createDailyEntryInTransaction(client, payload) {
 
   const resolved = await resolveEntryPayFields({
     workerId,
+    jobSiteId: normalizedJobSiteId,
     payCode,
     paychexComponentId: isHoursPayCode(payCode) ? undefined : paychexComponentId,
     hours,

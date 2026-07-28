@@ -85,7 +85,7 @@ SELECT
   w.employee_code,
   w.first_name,
   w.last_name,
-  w.standard_rate,
+  COALESCE(wjsr.rate, w.standard_rate) AS standard_rate,
   js.job_code,
   js.name                        AS job_site_name,
   te.paychex_component_id        AS stored_component_id,
@@ -94,9 +94,11 @@ SELECT
 FROM time_entries te
 JOIN workers w    ON te.worker_id   = w.id
 JOIN job_sites js ON te.job_site_id = js.id
+LEFT JOIN worker_job_site_rates wjsr
+  ON wjsr.worker_id = w.id AND wjsr.job_site_id = te.job_site_id
 WHERE te.pay_period_id = $1
 GROUP BY w.id, w.paychex_worker_id, w.employee_code, w.first_name, w.last_name,
-         w.standard_rate, js.job_code, js.name, te.paychex_component_id
+         w.standard_rate, wjsr.rate, js.job_code, js.name, te.paychex_component_id
 `;
 
 async function buildSubmissionPayload(payPeriodId) {

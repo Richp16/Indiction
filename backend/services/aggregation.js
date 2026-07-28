@@ -8,18 +8,20 @@ SELECT
   COALESCE(SUM(
     CASE
       WHEN te.paychex_component_id IN ('REGULAR', 'HOURLY', 'Hourly', 'Regular')
-        THEN te.hours * COALESCE(w.standard_rate, 0)
+        THEN te.hours * COALESCE(wjsr.rate, w.standard_rate, 0)
       WHEN te.paychex_component_id IN ('OT', 'OVERTIME', 'Overtime')
-        THEN te.hours * COALESCE(w.standard_rate, 0) * ${OT_EARNINGS_MULTIPLIER}
+        THEN te.hours * COALESCE(wjsr.rate, w.standard_rate, 0) * ${OT_EARNINGS_MULTIPLIER}
       WHEN te.paychex_component_id IN ('DT', 'DOUBLETIME', 'Doubletime')
-        THEN te.hours * COALESCE(w.standard_rate, 0) * 2
+        THEN te.hours * COALESCE(wjsr.rate, w.standard_rate, 0) * 2
       WHEN te.paychex_component_id IN ('PTO', 'Vacation', 'Sick')
-        THEN te.hours * COALESCE(w.standard_rate, 0)
+        THEN te.hours * COALESCE(wjsr.rate, w.standard_rate, 0)
       ELSE 0
     END
   ), 0) AS total_earnings
 FROM time_entries te
 JOIN workers w ON te.worker_id = w.id
+LEFT JOIN worker_job_site_rates wjsr
+  ON wjsr.worker_id = w.id AND wjsr.job_site_id = te.job_site_id
 WHERE te.pay_period_id = $1
   AND te.paychex_component_id NOT IN ('REIMBURSE', 'Reimbursement')
 `;
@@ -40,10 +42,12 @@ SELECT
   COALESCE(SUM(d.hours_worked), 0)                                               AS "totalHours",
   COALESCE(SUM(CASE WHEN d.component_name ILIKE '%truck%' THEN d.reimbursement_amount END), 0)                                                   AS "truckReimbursement",
   COALESCE(SUM(CASE WHEN d.component_name NOT ILIKE '%truck%' THEN d.reimbursement_amount END), 0)                                               AS "otherReimbursements",
-  COALESCE(SUM(d.hours_worked * COALESCE(w.standard_rate, 0)), 0) + COALESCE(SUM(d.reimbursement_amount), 0)                                                      AS "total",
-  MAX(w.standard_rate)                                                                                                                             AS "standardRate"
+  COALESCE(SUM(d.hours_worked * COALESCE(wjsr.rate, w.standard_rate, 0)), 0) + COALESCE(SUM(d.reimbursement_amount), 0)                                                      AS "total",
+  MAX(COALESCE(wjsr.rate, w.standard_rate, 0))                                                                                             AS "standardRate"
 FROM daily_time_entries d
 JOIN workers w  ON d.worker_id    = w.id
+LEFT JOIN worker_job_site_rates wjsr
+  ON wjsr.worker_id = w.id AND wjsr.job_site_id = d.job_site_id
 WHERE d.pay_period_id = $1
 GROUP BY w.employee_code, w.first_name, w.last_name
 ORDER BY w.last_name, w.first_name;
@@ -118,6 +122,7 @@ module.exports = {
   getCompanyEarnings,
   generateCSV,
   AGGREGATED_SUMMARY_SQL,
+  COMPANY_EARNINGS_SQL,
   CSV_HEADERS,
   CSV_FIELD_MAP,
   OT_EARNINGS_MULTIPLIER,

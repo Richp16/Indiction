@@ -1,4 +1,5 @@
 const { query } = require('../db');
+const { getEffectiveRate } = require('../db/workerRateQuery');
 const {
   getPayCodeDefinition,
   isHoursPayCode,
@@ -14,6 +15,7 @@ class EntryResolveError extends Error {
 
 async function resolveEntryPayFields({
   workerId,
+  jobSiteId,
   payCode,
   paychexComponentId,
   hours,
@@ -36,6 +38,10 @@ async function resolveEntryPayFields({
     );
   }
 
+  const effectiveRate = jobSiteId
+    ? await getEffectiveRate(workerId, jobSiteId)
+    : Number(worker.standard_rate) || 0;
+
   if (isHoursPayCode(payCode)) {
     const definition = getPayCodeDefinition(payCode);
     const hoursValue = Number(hours) || 0;
@@ -46,7 +52,7 @@ async function resolveEntryPayFields({
     return {
       paychexComponentId: payCode,
       componentName: definition.label,
-      componentRate: worker.standard_rate ?? null,
+      componentRate: effectiveRate || null,
       hours: hoursValue,
       reimbursementAmount: 0,
       entryType: 'HOURS',

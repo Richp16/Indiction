@@ -10,6 +10,7 @@ import Settings from './pages/Settings';
 import CompanySettingsPage from './pages/CompanySettingsPage';
 import JobSitesPage from './pages/JobSitesPage';
 import ClassificationsPage from './pages/ClassificationsPage';
+import PayRatesPage from './pages/PayRatesPage';
 import CertifiedPayrollPage from './pages/CertifiedPayrollPage';
 
 function HomeRedirect() {
@@ -98,6 +99,14 @@ export default function App() {
         element={
           <ProtectedRoute requireAdmin>
             <ClassificationsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/pay-rates"
+        element={
+          <ProtectedRoute requireAdmin>
+            <PayRatesPage />
           </ProtectedRoute>
         }
       />

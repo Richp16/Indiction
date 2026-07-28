@@ -83,6 +83,16 @@ CREATE INDEX IF NOT EXISTS idx_paychex_pay_periods_company_end_date
 CREATE INDEX IF NOT EXISTS idx_paychex_pay_periods_company_status
   ON paychex_pay_periods (company_id, status);
 
+CREATE TABLE IF NOT EXISTS worker_job_site_rates (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  worker_id   UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+  job_site_id UUID NOT NULL REFERENCES job_sites(id) ON DELETE CASCADE,
+  rate        NUMERIC(10,2) NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (worker_id, job_site_id)
+);
+
 CREATE TABLE IF NOT EXISTS labor_classifications (
   id          SERIAL PRIMARY KEY,
   name        VARCHAR(100) NOT NULL UNIQUE,

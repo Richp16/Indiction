@@ -43,6 +43,7 @@ app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/submit', submitRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/labor-classifications', laborClassificationsRoutes);
+app.use('/api/job-site-rates', require('./routes/jobSiteRates'));
 app.use('/api/company-settings', companySettingsRoutes);
 app.use('/api/certified-payroll', certifiedPayrollRoutes);
 app.use('/api/paychex', require('./routes/paychex'));

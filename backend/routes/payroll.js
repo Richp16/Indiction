@@ -216,7 +216,7 @@ router.put(
 router.delete('/:payPeriodId/row', requireRole('payroll_admin', 'system_admin'), async (req, res) => {
   try {
     const { payPeriodId } = req.params;
-    const { workerDbId, jobSiteId } = req.body;
+    const { workerDbId } = req.body;
 
     if (!payPeriodId || !UUID_RE.test(payPeriodId)) {
       return res.status(400).json({ message: 'Invalid pay period ID' });
@@ -224,14 +224,10 @@ router.delete('/:payPeriodId/row', requireRole('payroll_admin', 'system_admin'),
     if (!workerDbId || !UUID_RE.test(workerDbId)) {
       return res.status(400).json({ message: 'workerDbId is required' });
     }
-    if (jobSiteId != null && jobSiteId !== '' && !UUID_RE.test(jobSiteId)) {
-      return res.status(400).json({ message: 'Invalid job site ID' });
-    }
 
     const deletedCount = await deletePayrollRow({
       payPeriodId,
       workerDbId,
-      jobSiteId: jobSiteId || null,
     });
 
     if (deletedCount === 0) {
