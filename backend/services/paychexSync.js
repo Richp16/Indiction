@@ -2,7 +2,7 @@ const { query } = require('../db');
 const { companyId, getPaychexBaseUrl, PAYCHEX_TIMEOUT_MS } = require('../config/paychexApi');
 const { shouldSyncPayComponent } = require('../config/paychex');
 const { paychexGet } = require('./paychexHttp');
-const { formatPaychexErrorForLog } = require('./paychexErrors');
+const { formatSyncErrorForUser } = require('./paychexErrors');
 
 async function logSync(syncType, status, message) {
   await query(
@@ -23,15 +23,7 @@ function addDays(dateStr, days) {
 }
 
 function formatSyncError(error) {
-  if (error.paychexErrorType) {
-    return formatPaychexErrorForLog(error);
-  }
-  const status = error.response?.status;
-  const data = error.response?.data;
-  if (status) {
-    return { type: 'http', statusCode: status, message: JSON.stringify(data) };
-  }
-  return { type: 'unknown', message: error.message || 'Unknown error' };
+  return formatSyncErrorForUser(error);
 }
 
 async function fetchWorkerHourlyRate(paychexWorkerId) {
@@ -322,20 +314,41 @@ async function syncHistoricalPaychexPayPeriods() {
   }
 }
 
-async function runFullSync() {
+/**
+ * Operational + historical pay-period discovery.
+ * OPEN → pay_periods; COMPLETED → paychex_pay_periods.
+ */
+async function runPayPeriodSync() {
   const results = [];
-  results.push(await syncWorkers());
-  results.push(await syncWorkerPayRates());
-  results.push(await syncPayComponents());
-  // 1) OPEN → pay_periods (Daily Entry / Payroll)
   results.push(await syncPayPeriods());
-  // 2) COMPLETED → paychex_pay_periods (checks / Settings picker)
   results.push(await syncHistoricalPaychexPayPeriods());
   return results;
 }
 
+/**
+ * Workers, rates, pay components, and recurring reimbursements.
+ * Each sync catches its own errors so one failure does not block the rest.
+ */
+async function runReferenceDataSync() {
+  const results = [];
+  results.push(await syncWorkers());
+  results.push(await syncWorkerPayRates());
+  results.push(await syncPayComponents());
+  const { syncRecurringReimbursementsForAllWorkers } = require('./paychexRecurringSync');
+  results.push(await syncRecurringReimbursementsForAllWorkers());
+  return results;
+}
+
+async function runFullSync() {
+  const payPeriodResults = await runPayPeriodSync();
+  const referenceResults = await runReferenceDataSync();
+  return [...payPeriodResults, ...referenceResults];
+}
+
 module.exports = {
   runFullSync,
+  runPayPeriodSync,
+  runReferenceDataSync,
   syncWorkers,
   syncWorkerPayRates,
   syncPayComponents,
@@ -343,4 +356,5 @@ module.exports = {
   syncPayPeriods,
   syncHistoricalPaychexPayPeriods,
   fetchWorkerHourlyRate,
+  formatSyncError,
 };

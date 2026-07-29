@@ -31,6 +31,10 @@ cp .env.example .env
 | `PAYCHEX_CLIENT_SECRET` | Paychex OAuth client secret |
 | `PAYCHEX_COMPANY_ID` | Paychex company ID |
 | `PAYCHEX_BASE_URL` | Paychex API base URL (default: `https://api.paychex.com`) |
+| `PAYCHEX_REIMBURSEMENT_COMPONENT_IDS` | Optional comma-separated Paychex pay component IDs treated as recurring reimbursements. If unset, reimbursement-like component names are matched. |
+| `PAYCHEX_REIMBURSE_COMPONENT_ID` | Optional single reimbursement component ID (also used as sync filter fallback) |
+| `PAYCHEX_SYNC_INTERVAL_MS` | Background Paychex sync interval in ms (default: `21600000` = 6 hours / 4× daily) |
+| `LOGIN_SYNC_STALE_THRESHOLD_MS` | Login triggers a background sync when last success is older than this (default: `25200000` = 7 hours) |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `JWT_SECRET` | Secret key for signing JWT tokens |
 | `PORT` | Server port (default: `3000`) |

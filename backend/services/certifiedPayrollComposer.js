@@ -58,7 +58,7 @@ function mergeOtherDeductions(otherDeductions) {
   const amount = otherDeductions.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const label = otherDeductions.map((item) => item.label).filter(Boolean).join(', ');
   return {
-    amount: Math.round(amount * 100) / 100,
+    amount,
     label,
   };
 }
@@ -76,7 +76,7 @@ function mapPaychexCheckToSupplementFields(rawCheck, componentMap = new Map()) {
   const other = mergeOtherDeductions(parsed.otherDeductions);
   const withholding = Number(parsed.federalWithholding) || 0;
   const fica = Number(parsed.fica) || 0;
-  const totalDeductions = Math.round((withholding + fica + other.amount) * 100) / 100;
+  const totalDeductions = withholding + fica + other.amount;
 
   return {
     payPeriodId: normalized?.payPeriodId || null,
@@ -93,6 +93,10 @@ function mapPaychexCheckToSupplementFields(rawCheck, componentMap = new Map()) {
     totalDeductions,
     netPay: parsed.netPay,
     reimbursementAmount: parsed.reimbursementAmount || 0,
+    checkNetPay: parsed.checkNetPay,
+    computedNetPay: parsed.computedNetPay,
+    netPayDrift: parsed.netPayDrift || 0,
+    hasSignificantNetPayDrift: Boolean(parsed.hasSignificantNetPayDrift),
     earnings: normalized?.earnings || [],
     deductions: normalized?.deductions || [],
     taxes: normalized?.taxes || [],
@@ -106,6 +110,7 @@ function buildReconciliationWarnings({
   checksByWorker,
   workersWithMultipleChecksInSamePayPeriod = [],
   checksFetchMeta = null,
+  componentMap = new Map(),
 }) {
   const hourWorkerPaychexIds = new Set(
     workers.map((w) => w.paychexWorkerId).filter(Boolean).map(String)
@@ -138,7 +143,8 @@ function buildReconciliationWarnings({
     .map((paychexWorkerId) => ({
       paychexWorkerId,
       paycheckId:
-        mapPaychexCheckToSupplementFields(checksByWorker[paychexWorkerId])?.paycheckId || null,
+        mapPaychexCheckToSupplementFields(checksByWorker[paychexWorkerId], componentMap)
+          ?.paycheckId || null,
     }));
 
   const checksUnavailable = checksFetchMeta?.checksUnavailable

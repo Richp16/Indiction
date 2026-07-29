@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { apiGet, apiPostDownload, apiDelete, apiPut } from '../api/client';
+import { apiGet, apiPostDownload, apiDelete } from '../api/client';
+import { downloadFile } from '../utils/downloadFile';
 
 function parseNumericField(value) {
   if (value == null || value === '') return 0;
@@ -8,13 +9,18 @@ function parseNumericField(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function formatPaychexNumber(value) {
-  const n = parseNumericField(value);
-  if (!Number.isFinite(n)) return '';
-  const rounded = Math.round(n * 10000) / 10000;
-  if (Object.is(rounded, -0)) return '0';
-  if (Number.isInteger(rounded)) return String(rounded);
-  return String(rounded);
+function buildPayrollExportFilename(payPeriod) {
+  const startRaw = payPeriod?.start_date || payPeriod?.startDate;
+  const endRaw = payPeriod?.end_date || payPeriod?.endDate;
+  if (!startRaw || !endRaw) return 'Paychex_Import.csv';
+  const toDisplay = (iso) => {
+    const [y, m, d] = String(iso).split('T')[0].split('-');
+    return y && m && d ? `${m}.${d}.${y}` : null;
+  };
+  const start = toDisplay(startRaw);
+  const end = toDisplay(endRaw);
+  if (!start || !end) return 'Paychex_Import.csv';
+  return `Paychex_Import_${start}_to_${end}.csv`;
 }
 
 function getRowIssues(row) {
@@ -77,7 +83,7 @@ function cellDisplay(row, key) {
   return String(value);
 }
 
-export default function PayrollExport({ payPeriodId, token, showInstructions = false }) {
+export default function PayrollExport({ payPeriodId, token }) {
   const { isAdmin } = useAuth();
   const [exportRows, setExportRows] = useState([]);
   const [payPeriod, setPayPeriod] = useState(null);
@@ -85,13 +91,10 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
   const [warnings, setWarnings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [rowPendingDelete, setRowPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  /** workerDbId → pending absolute reimbursement amount */
-  const [editedAdjustments, setEditedAdjustments] = useState(() => new Map());
   const cancelButtonRef = useRef(null);
 
   const loadPreview = useCallback(async () => {
@@ -100,7 +103,6 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
       setPayPeriod(null);
       setClientCode('payroll');
       setWarnings([]);
-      setEditedAdjustments(new Map());
       return;
     }
 
@@ -112,7 +114,6 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
       setPayPeriod(data.payPeriod || null);
       setClientCode(data.clientCode || 'payroll');
       setWarnings(data.warnings || []);
-      setEditedAdjustments(new Map());
     } catch (err) {
       setError(err.message || 'Failed to load payroll export preview');
       setExportRows([]);
@@ -133,7 +134,6 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
 
   const issueCount = rowIssues.filter((issues) => issues.length > 0).length;
   const hasValidationErrors = issueCount > 0;
-  const hasUnsavedAdjustments = editedAdjustments.size > 0;
 
   const totalHours = useMemo(
     () =>
@@ -146,51 +146,6 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
       }, 0),
     [exportRows]
   );
-
-  function handleReimbursementChange(index, value) {
-    const row = exportRows[index];
-    if (!row || row['Pay Component'] !== 'Reimbursement') return;
-
-    const next = { ...row, Amount: value };
-    setExportRows((rows) => rows.map((r, i) => (i === index ? next : r)));
-
-    if (row._workerDbId) {
-      setEditedAdjustments((prev) => {
-        const map = new Map(prev);
-        map.set(String(row._workerDbId), {
-          reimbursementAmount: value,
-        });
-        return map;
-      });
-    }
-    setSuccessMessage('');
-  }
-
-  async function handleSaveAdjustments() {
-    if (!payPeriodId || !hasUnsavedAdjustments) return;
-
-    setSaving(true);
-    setError('');
-    setSuccessMessage('');
-
-    try {
-      const adjustments = Array.from(editedAdjustments.entries()).map(
-        ([workerId, values]) => ({
-          workerId,
-          reimbursementAmount: parseNumericField(values.reimbursementAmount),
-          shortPayAmount: 0,
-        })
-      );
-
-      await apiPut(`/api/payroll/${payPeriodId}/adjustments`, { adjustments }, token);
-      setEditedAdjustments(new Map());
-      setSuccessMessage('Reimbursement changes saved.');
-    } catch (err) {
-      setError(err.message || 'Unable to save adjustments. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  }
 
   function openDeleteConfirm(row, index) {
     setError('');
@@ -259,16 +214,11 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
         token
       );
 
-      const downloadName = filename || `${clientCode}_ta.csv`;
-
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = downloadName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
+      const downloadName = filename || buildPayrollExportFilename(payPeriod);
+      const result = await downloadFile(blob, downloadName, 'text/csv');
+      if (!result.success && !result.cancelled) {
+        setError('Download failed');
+      }
     } catch (err) {
       setError(err.message || 'Download failed');
     } finally {
@@ -286,33 +236,11 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
 
       <p style={{ color: '#444', maxWidth: 720 }}>
         Paychex import format: one row per pay component (Hourly by effective rate,
-        Overtime, Reimbursement). Check Seq Number is shared across all rows for the
-        same worker. Review below, then download the CSV for SPI / Paychex Flex import.
+        Overtime, Reimbursement from Daily Entry). Check Seq Number is shared across
+        all rows for the same worker. Review below, then download the CSV for SPI /
+        Paychex Flex import.
       </p>
 
-      {showInstructions && isAdmin && (
-        <div
-          style={{
-            marginTop: '1rem',
-            padding: '1rem',
-            background: '#f7f7f7',
-            borderRadius: 4,
-            maxWidth: 720,
-          }}
-        >
-          <p style={{ marginTop: 0 }}>
-            <strong>Once downloaded, upload the CSV to Paychex Flex:</strong>
-          </p>
-          <ol style={{ marginBottom: 0, paddingLeft: '1.25rem' }}>
-            <li>Log in to flex.paychex.com</li>
-            <li>Go to Payroll Center</li>
-            <li>Open the current active payroll → click Begin</li>
-            <li>Click More Options → Import Payroll Data</li>
-            <li>Select the downloaded file (e.g. 12345678_ta.csv)</li>
-            <li>Review imported data, then click Review &amp; Submit → Submit Payroll</li>
-          </ol>
-        </div>
-      )}
 
       {loading && <p>Loading payroll export…</p>}
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
@@ -337,13 +265,33 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
       )}
 
       {!loading && exportRows.length > 0 && (
-        <p style={{ marginTop: '1rem', color: '#444' }}>
-          {exportRows.length} row{exportRows.length === 1 ? '' : 's'} · Total hours:{' '}
-          <strong>{totalHours.toFixed(2)}</strong>
-          {payPeriod?.start_date && payPeriod?.end_date
-            ? ` · ${payPeriod.start_date} – ${payPeriod.end_date}`
-            : ''}
-        </p>
+        <div
+          style={{
+            marginTop: '1rem',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.75rem',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <p style={{ margin: 0, color: '#444' }}>
+            {exportRows.length} row{exportRows.length === 1 ? '' : 's'} · Total hours:{' '}
+            <strong>{totalHours.toFixed(2)}</strong>
+            {payPeriod?.start_date && payPeriod?.end_date
+              ? ` · ${payPeriod.start_date} – ${payPeriod.end_date}`
+              : ''}
+          </p>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={loading || downloading || hasValidationErrors}
+            >
+              {downloading ? 'Downloading…' : 'Download Payroll CSV'}
+            </button>
+          )}
+        </div>
       )}
 
       {!loading && exportRows.length > 0 && (
@@ -386,58 +334,31 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
                     <td style={{ ...tdStyle, textAlign: 'left', whiteSpace: 'nowrap' }}>
                       {row._employeeName || '—'}
                     </td>
-                    {TABLE_COLUMNS.map((col) => {
-                      if (
-                        col.key === 'Amount' &&
-                        row['Pay Component'] === 'Reimbursement' &&
-                        isAdmin
-                      ) {
-                        return (
-                          <td key={col.key} style={{ ...tdStyle, textAlign: 'right' }}>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={row.Amount ?? ''}
-                              onChange={(e) =>
-                                handleReimbursementChange(index, e.target.value)
-                              }
-                              onBlur={(e) =>
-                                handleReimbursementChange(
-                                  index,
-                                  formatPaychexNumber(e.target.value)
-                                )
-                              }
-                              style={{ ...inputStyle, width: 88, textAlign: 'right' }}
-                              title="Editable — click Save changes to persist for this pay period"
-                            />
-                          </td>
-                        );
-                      }
-
-                      return (
-                        <td
-                          key={col.key}
-                          style={{
-                            ...tdStyle,
-                            textAlign: col.align,
-                            fontWeight:
-                              col.key === 'Check Seq Number' ? 600 : undefined,
-                          }}
-                        >
-                          {cellDisplay(row, col.key)}
-                        </td>
-                      );
-                    })}
+                    {TABLE_COLUMNS.map((col) => (
+                      <td
+                        key={col.key}
+                        style={{
+                          ...tdStyle,
+                          textAlign: col.align,
+                          fontWeight:
+                            col.key === 'Check Seq Number' ? 600 : undefined,
+                        }}
+                      >
+                        {cellDisplay(row, col.key)}
+                      </td>
+                    ))}
                     {isAdmin && (
                       <td style={tdStyle}>
-                        <button
-                          type="button"
-                          onClick={() => openDeleteConfirm(row, index)}
-                          aria-label={`Delete payroll rows for ${row._employeeName ?? row['Worker ID'] ?? 'employee'}`}
-                          style={deleteButtonStyle}
-                        >
-                          Delete
-                        </button>
+                        {isNewWorkerGroup ? (
+                          <button
+                            type="button"
+                            onClick={() => openDeleteConfirm(row, index)}
+                            aria-label={`Delete payroll rows for ${row._employeeName ?? row['Worker ID'] ?? 'employee'}`}
+                            style={deleteButtonStyle}
+                          >
+                            Delete
+                          </button>
+                        ) : null}
                       </td>
                     )}
                   </tr>
@@ -445,39 +366,6 @@ export default function PayrollExport({ payPeriodId, token, showInstructions = f
               })}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {isAdmin && (
-        <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={handleSaveAdjustments}
-            disabled={
-              loading || saving || !hasUnsavedAdjustments || exportRows.length === 0
-            }
-          >
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
-          <button
-            type="button"
-            onClick={handleDownload}
-            disabled={
-              loading ||
-              downloading ||
-              saving ||
-              hasValidationErrors ||
-              hasUnsavedAdjustments ||
-              exportRows.length === 0
-            }
-            title={
-              hasUnsavedAdjustments
-                ? 'Save reimbursement changes before downloading'
-                : undefined
-            }
-          >
-            {downloading ? 'Downloading…' : 'Download Payroll CSV'}
-          </button>
         </div>
       )}
 
@@ -541,13 +429,6 @@ const tdStyle = {
   borderBottom: '1px solid #e5e7eb',
   padding: '0.35rem 0.5rem',
   verticalAlign: 'middle',
-};
-
-const inputStyle = {
-  width: '100%',
-  minWidth: 64,
-  padding: '0.25rem',
-  boxSizing: 'border-box',
 };
 
 const deleteButtonStyle = {

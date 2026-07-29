@@ -41,6 +41,30 @@ router.get('/pay-periods', requireAuth, async (_req, res) => {
   }
 });
 
+/**
+ * Sync OPEN pay periods from Paychex into local `pay_periods`
+ * (used by Payroll / Summary / Daily Entry selectors).
+ */
+router.post(
+  '/sync-pay-periods',
+  requireRole('payroll_admin', 'system_admin'),
+  async (_req, res) => {
+    try {
+      const { syncPayPeriods } = require('../services/paychexSync');
+      const result = await syncPayPeriods();
+      const status = result.status === 'FAILED' ? 502 : 200;
+      res.status(status).json(result);
+    } catch (error) {
+      console.error('[payroll/sync-pay-periods]', error.message);
+      res.status(500).json({
+        syncType: 'pay_periods',
+        status: 'FAILED',
+        message: error.message,
+      });
+    }
+  }
+);
+
 router.get('/summary', requireAuth, async (req, res) => {
   try {
     const period = await resolvePayrollPeriodFromQuery({
@@ -107,7 +131,11 @@ router.get('/export-csv', requireRole('payroll_admin', 'system_admin'), async (r
     }
 
     const clientCode = process.env.PAYCHEX_CLIENT_CODE || result.clientCode || 'payroll';
-    const { csvString, filename } = generateSPICSV(cleanedRows, clientCode);
+    const { csvString, filename } = generateSPICSV(
+      cleanedRows,
+      clientCode,
+      result.payPeriod || period
+    );
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -264,8 +292,21 @@ router.post('/:payPeriodId/download', requireRole('payroll_admin', 'system_admin
       });
     }
 
+    const periodResult = await query(
+      `SELECT start_date::text AS start_date, end_date::text AS end_date
+       FROM pay_periods WHERE id = $1`,
+      [payPeriodId]
+    );
+    if (periodResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Pay period not found' });
+    }
+
     const clientCode = process.env.PAYCHEX_CLIENT_CODE || 'payroll';
-    const { csvString, filename } = generateSPICSV(cleanedRows, clientCode);
+    const { csvString, filename } = generateSPICSV(
+      cleanedRows,
+      clientCode,
+      periodResult.rows[0]
+    );
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

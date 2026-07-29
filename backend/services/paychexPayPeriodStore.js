@@ -301,7 +301,7 @@ async function requireLocalPayPeriod(companyId, payPeriodId) {
  * List locally persisted Paychex pay periods from `paychex_pay_periods` only
  * (newest end_date first). Does not read operational `pay_periods`.
  */
-async function listLocalPayPeriods(companyId, { status, from, to } = {}) {
+async function listLocalPayPeriods(companyId, { status, from, to, hasHours } = {}) {
   const cid = assertPaychexCompanyId(companyId);
   const params = [cid];
   const clauses = ['company_id = $1'];
@@ -317,6 +317,16 @@ async function listLocalPayPeriods(companyId, { status, from, to } = {}) {
   if (to) {
     params.push(String(to).split('T')[0]);
     clauses.push(`start_date <= $${params.length}::date`);
+  }
+  if (hasHours) {
+    clauses.push(
+      `EXISTS (
+        SELECT 1 FROM pay_periods pp
+        JOIN daily_time_entries dte ON dte.pay_period_id = pp.id
+        WHERE pp.start_date = paychex_pay_periods.start_date
+          AND pp.end_date = paychex_pay_periods.end_date
+      )`
+    );
   }
 
   const result = await query(

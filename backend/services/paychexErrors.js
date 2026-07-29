@@ -102,6 +102,64 @@ function formatPaychexErrorForLog(err) {
 }
 
 /**
+ * Human-readable sync failure message for logs and admin UI banners.
+ * Avoids dumping raw JSON response bodies.
+ */
+function formatSyncErrorForUser(error) {
+  const type = error?.paychexErrorType || null;
+  const status = error?.statusCode ?? error?.response?.status;
+
+  if (type === 'auth' || status === 401 || status === 403) {
+    return {
+      type: 'auth',
+      statusCode: status,
+      message: 'Paychex API authentication failed',
+    };
+  }
+  if (type === 'network' || (error?.code && !error?.response)) {
+    const code = error.networkCode || error.code;
+    return {
+      type: 'network',
+      networkCode: code,
+      message: code
+        ? `Could not reach Paychex API (${code})`
+        : 'Could not reach Paychex API (network error)',
+    };
+  }
+  if (type === 'server' || (status && status >= 500)) {
+    return {
+      type: 'server',
+      statusCode: status,
+      message: status
+        ? `Paychex API server error (${status})`
+        : 'Paychex API server error',
+    };
+  }
+  if (status) {
+    return {
+      type: 'http',
+      statusCode: status,
+      message: `Paychex API request failed (HTTP ${status})`,
+    };
+  }
+
+  if (error?.paychexErrorType || error?.paychexContext) {
+    const logged = formatPaychexErrorForLog(error);
+    const raw = String(logged.message || '');
+    const cleaned = raw.replace(/:\s*[\[{][\s\S]*$/, '').trim();
+    return {
+      ...logged,
+      message: cleaned || 'Paychex sync failed',
+    };
+  }
+
+  return {
+    type: 'unknown',
+    message: error?.message || 'Unknown sync error',
+  };
+}
+
+/**
  * Extract Paychex error code (e.g. "API-1") from a mapped error or raw body.
  */
 function extractPaychexErrorCode(err) {
@@ -135,6 +193,7 @@ module.exports = {
   mapPaychexError,
   isRetryableNetworkError,
   formatPaychexErrorForLog,
+  formatSyncErrorForUser,
   extractPaychexErrorCode,
   CHECKS_SERVER_ERROR_MESSAGE,
   CHECKS_NOT_READY_MESSAGE,

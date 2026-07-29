@@ -136,27 +136,12 @@ async function listPayrollPayPeriods({ limit = PAYROLL_PERIODS_LIMIT } = {}) {
        OR EXISTS (
          SELECT 1 FROM time_entries te WHERE te.pay_period_id = pay_periods.id
        )
-       OR (
-         status = 'OPEN'
-         AND start_date <= CURRENT_DATE
-         AND end_date >= CURRENT_DATE
-       )
      ORDER BY start_date DESC
      LIMIT $1`,
     [limit]
   );
 
-  let periods = result.rows;
-
-  if (current && !periods.some((period) => period.id === current.id)) {
-    periods = [current, ...periods]
-      .sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))
-      .slice(0, limit);
-  }
-
-  if (periods.length === 0 && current) {
-    periods = [current];
-  }
+  const periods = result.rows;
 
   return periods.map((period) =>
     mapPeriodOption(period, { isCurrent: Boolean(current && period.id === current.id) })

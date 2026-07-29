@@ -6,7 +6,6 @@ const {
   groupWorkersFromHours,
   computeWh347Fica,
   isSupervisorClassification,
-  roundMoney,
 } = require('../services/certifiedPayrollService');
 
 const site = { wage_determination_no: 'TX20240001' };
@@ -17,9 +16,9 @@ const worker = {
 };
 
 describe('WH-347 FICA is always 7.65% of gross ALL WORK', () => {
-  it('computeWh347Fica rounds 7.65% of gross to 2 decimals', () => {
-    assert.equal(computeWh347Fica(2000), roundMoney(2000 * 0.0765));
-    assert.equal(computeWh347Fica(2775.65), roundMoney(2775.65 * 0.0765));
+  it('computeWh347Fica returns full-precision 7.65% of gross', () => {
+    assert.equal(computeWh347Fica(2000), 2000 * 0.0765);
+    assert.equal(computeWh347Fica(2775.65), 2775.65 * 0.0765);
     assert.equal(computeWh347Fica(0), 0);
     assert.equal(computeWh347Fica(null), 0);
   });
@@ -38,7 +37,7 @@ describe('WH-347 FICA is always 7.65% of gross ALL WORK', () => {
       mapped: null,
     });
 
-    const expectedFica = roundMoney(2000 * 0.0765);
+    const expectedFica = 2000 * 0.0765;
     assert.equal(row.deduction_fica, expectedFica);
     assert.notEqual(row.deduction_fica, 999.99);
     // Regression: other money fields unchanged
@@ -47,7 +46,7 @@ describe('WH-347 FICA is always 7.65% of gross ALL WORK', () => {
     assert.equal(row.deduction_other, 50);
     assert.equal(row.net_pay, 1500);
     // total_deductions recomputed with the 7.65% FICA
-    assert.equal(row.total_deductions, roundMoney(250 + expectedFica + 50));
+    assert.equal(row.total_deductions, 250 + expectedFica + 50);
   });
 
   it('buildSupplementFromPaychex with mapped check also ignores mapped.fica', () => {
@@ -68,15 +67,15 @@ describe('WH-347 FICA is always 7.65% of gross ALL WORK', () => {
       },
     });
 
-    const expectedFica = roundMoney(2775.65 * 0.0765);
+    const expectedFica = 2775.65 * 0.0765;
     assert.equal(row.deduction_fica, expectedFica);
-    assert.equal(row.total_deductions, roundMoney(300 + expectedFica + 25));
+    assert.equal(row.total_deductions, 300 + expectedFica + 25);
   });
 
   it('buildSupplementEstimate computes FICA as 7.65% of estimated gross', () => {
     const row = buildSupplementEstimate({ grossAllWork: 2000, site, worker });
     assert.equal(row.deduction_fica, computeWh347Fica(row.gross_earned_all_work));
-    assert.equal(row.deduction_fica, roundMoney(Number(row.gross_earned_all_work) * 0.0765));
+    assert.equal(row.deduction_fica, Number(row.gross_earned_all_work) * 0.0765);
   });
 });
 

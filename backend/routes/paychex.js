@@ -67,6 +67,79 @@ router.get('/company', (_req, res) => {
 });
 
 /**
+ * GET /api/paychex/paycomponents
+ * Admin debug: dump company pay components (id, name, type fields).
+ * Use this to choose PAYCHEX_REIMBURSEMENT_COMPONENT_IDS.
+ */
+router.get('/paycomponents', async (_req, res) => {
+  try {
+    const {
+      listCompanyPayComponents,
+      getReimbursementComponentIds,
+    } = require('../services/paychexRecurringSync');
+    const components = await listCompanyPayComponents();
+    res.json({
+      companyId: companyId(),
+      configuredReimbursementComponentIds: getReimbursementComponentIds(),
+      count: components.length,
+      components,
+    });
+  } catch (error) {
+    sendPaychexError(res, error);
+  }
+});
+
+/**
+ * POST /api/paychex/sync-recurring-reimbursements
+ * Pull recurring reimbursement amounts from Paychex into local cache.
+ */
+router.post('/sync-recurring-reimbursements', async (_req, res) => {
+  try {
+    const {
+      syncRecurringReimbursementsForAllWorkers,
+    } = require('../services/paychexRecurringSync');
+    const summary = await syncRecurringReimbursementsForAllWorkers();
+    const status = summary.status === 'FAILED' ? 502 : 200;
+    res.status(status).json(summary);
+  } catch (error) {
+    sendPaychexError(res, error);
+  }
+});
+
+/**
+ * GET /api/paychex/sync-status?type=pay_periods
+ * Latest sync_log row for a sync_type (for "Last synced" UI).
+ */
+router.get('/sync-status', async (req, res) => {
+  try {
+    const { query } = require('../db');
+    const type = String(req.query.type || '').trim();
+    if (!type) {
+      return res.status(400).json({ message: 'type query param is required' });
+    }
+
+    const result = await query(
+      `SELECT sync_type AS "syncType",
+              status,
+              message,
+              ran_at AS "lastRanAt"
+       FROM sync_log
+       WHERE sync_type = $1
+       ORDER BY ran_at DESC
+       LIMIT 1`,
+      [type]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({ syncType: type, status: null, message: null, lastRanAt: null });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    sendPaychexError(res, error);
+  }
+});
+
+/**
  * POST /api/paychex/companies/:companyId/pay-periods/sync
  * Body: { from?, to?, statuses? }
  *
@@ -119,6 +192,7 @@ router.get('/companies/:companyId/pay-periods', async (req, res) => {
       status: req.query.status,
       from: req.query.from,
       to: req.query.to,
+      hasHours: req.query.hasHours === 'true',
     });
     res.json({ periods, companyId: req.params.companyId });
   } catch (error) {

@@ -13,7 +13,6 @@ const { mapPaychexCheckToSupplementFields } = require('../services/certifiedPayr
 const {
   buildSupplementFromPaychex,
   computeWh347Fica,
-  roundMoney,
 } = require('../services/certifiedPayrollService');
 const { buildComponentMap } = require('../services/paychexPayComponents');
 
@@ -94,14 +93,15 @@ describe('parseCheckForSupplement excludes reimbursements from grossPay', () => 
     { componentId: 'reimb-1', name: 'Truck Reimbursement' },
   ]);
 
-  it('sets grossPay to taxableGross and adds reimbursement back into netPay', () => {
+  it('sets grossPay to taxableGross and prefers Paychex-reported netPay', () => {
     const taxableGross = 2650;
     const reimbursementAmount = 199;
     const federalWithholding = 0;
     const ss = 164.3;
     const medicare = 38.425;
-    const paychexFica = roundMoney(ss + medicare);
+    const paychexFica = ss + medicare;
     const other = 25;
+    const checkNetPay = 9999;
 
     const parsed = parseCheckForSupplement(
       {
@@ -111,7 +111,7 @@ describe('parseCheckForSupplement excludes reimbursements from grossPay', () => 
         ],
         // Inflated Paychex total — must not become grossPay
         grossEarnings: taxableGross + reimbursementAmount,
-        netPay: 9999, // ignored when reimbursementAmount > 0
+        netPay: checkNetPay,
         taxes: [
           { taxType: 'FEDERAL_INCOME', amount: federalWithholding, componentType: 'EMPLOYEE' },
           { taxType: 'SOCIAL_SECURITY', amount: ss, componentType: 'EMPLOYEE' },
@@ -128,15 +128,16 @@ describe('parseCheckForSupplement excludes reimbursements from grossPay', () => 
     // Paychex FICA extraction unchanged (not rewritten to 0.0765 here)
     assert.equal(parsed.fica, paychexFica);
     assert.equal(parsed.federalWithholding, federalWithholding);
+    // Always prefer Paychex net when present — even with reimbursements
+    assert.equal(parsed.netPay, checkNetPay);
     assert.equal(
-      parsed.netPay,
-      roundMoney(
-        taxableGross - federalWithholding - paychexFica - other + reimbursementAmount
-      )
+      parsed.computedNetPay,
+      taxableGross - federalWithholding - paychexFica - other + reimbursementAmount
     );
+    assert.equal(parsed.hasSignificantNetPayDrift, true);
   });
 
-  it('regression: debug-style check with reimbursement split is internally consistent', () => {
+  it('regression: uses Paychex netPay for reimbursement workers (not recomputed estimate)', () => {
     // workerCheckDebug.jpg reported ~2849 gross / 382.36 FICA / 0 WH / 2657.82 net.
     // Reconstruct with reimbursement carved out so WH-347 FICA uses taxable base only.
     const taxableGross = 2650;
@@ -147,6 +148,7 @@ describe('parseCheckForSupplement excludes reimbursements from grossPay', () => 
     const federalWithholding = 0;
     const paychexFica = 382.36;
     const other = 0;
+    const checkNetPay = 2657.82;
 
     const parsed = parseCheckForSupplement(
       {
@@ -155,7 +157,7 @@ describe('parseCheckForSupplement excludes reimbursements from grossPay', () => 
           { name: 'Regular', amount: taxableGross },
           { name: 'Truck Reimbursement', amount: reimbursementAmount },
         ],
-        netPay: 2657.82,
+        netPay: checkNetPay,
         taxes: [
           { taxType: 'FEDERAL_INCOME', amount: federalWithholding, componentType: 'EMPLOYEE' },
           { taxType: 'SOCIAL_SECURITY', amount: 310.0, componentType: 'EMPLOYEE' },
@@ -169,15 +171,37 @@ describe('parseCheckForSupplement excludes reimbursements from grossPay', () => 
     assert.equal(parsed.grossPay, taxableGross);
     assert.equal(parsed.reimbursementAmount, reimbursementAmount);
     assert.equal(parsed.fica, paychexFica);
+    assert.equal(parsed.netPay, checkNetPay);
     assert.equal(
-      parsed.netPay,
-      roundMoney(taxableGross - federalWithholding - paychexFica - other + reimbursementAmount)
+      parsed.computedNetPay,
+      taxableGross - federalWithholding - paychexFica - other + reimbursementAmount
     );
 
     // WH-347 FICA rate/formula untouched — only the base (taxableGross) changed
     const wh347Fica = computeWh347Fica(parsed.grossPay);
-    assert.equal(wh347Fica, roundMoney(taxableGross * WH347_FICA_RATE));
-    assert.notEqual(wh347Fica, roundMoney(inflatedGross * WH347_FICA_RATE));
+    assert.equal(wh347Fica, taxableGross * WH347_FICA_RATE);
+    assert.notEqual(wh347Fica, inflatedGross * WH347_FICA_RATE);
+  });
+
+  it('falls back to computed net only when Paychex net is missing', () => {
+    const parsed = parseCheckForSupplement(
+      {
+        earnings: [
+          { name: 'Regular', amount: 1000 },
+          { name: 'Truck Reimbursement', amount: 100 },
+        ],
+        taxes: [
+          { taxType: 'FEDERAL_INCOME', amount: 50, componentType: 'EMPLOYEE' },
+          { taxType: 'SOCIAL_SECURITY', amount: 40, componentType: 'EMPLOYEE' },
+          { taxType: 'MEDICARE', amount: 10, componentType: 'EMPLOYEE' },
+        ],
+        deductions: [],
+      },
+      map
+    );
+
+    assert.equal(parsed.netPay, 1000 - 50 - 50 + 100);
+    assert.equal(parsed.hasSignificantNetPayDrift, false);
   });
 });
 
@@ -240,11 +264,12 @@ describe('certified payroll wiring excludes reimbursements from gross ALL WORK',
     assert.equal(row.gross_earned_all_work, taxableGross);
     assert.equal(row.reimbursement_amount, reimbursementAmount);
     assert.equal(row.deduction_fica, computeWh347Fica(taxableGross));
-    assert.equal(row.deduction_fica, roundMoney(taxableGross * WH347_FICA_RATE));
+    assert.equal(row.deduction_fica, taxableGross * WH347_FICA_RATE);
     assert.notEqual(
       row.deduction_fica,
-      roundMoney((taxableGross + reimbursementAmount) * WH347_FICA_RATE)
+      (taxableGross + reimbursementAmount) * WH347_FICA_RATE
     );
-    assert.equal(row.net_pay, mapped.netPay);
+    assert.equal(row.net_pay, 1800);
+    assert.equal(mapped.netPay, 1800);
   });
 });

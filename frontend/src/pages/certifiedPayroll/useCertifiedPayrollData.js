@@ -232,7 +232,7 @@ export function useCertifiedPayrollData(token) {
 
         const [sitesData, periodsData] = await Promise.all([
           apiGet('/api/job-sites', token),
-          apiGet(`/api/paychex/companies/${cid}/pay-periods`, token),
+          apiGet(`/api/paychex/companies/${cid}/pay-periods?hasHours=true`, token),
         ]);
 
         if (cancelled) return;

@@ -83,8 +83,8 @@ ORDER BY
 `;
 
 /**
- * Worker-level OT/DT hours and reimbursement for the period.
- * Includes workers who only have payroll_adjustments (no time_entries).
+ * Worker-level OT/DT hours and reimbursement for the period
+ * (reimbursement from time_entries / Daily Entry only).
  */
 const WORKER_EXTRAS_SQL = `
 SELECT
@@ -99,27 +99,15 @@ SELECT
   COALESCE(SUM(CASE
     WHEN UPPER(te.paychex_component_id::text) IN ('DT', 'DOUBLETIME')
     THEN te.hours ELSE 0 END), 0)          AS doubletime_hours,
-  COALESCE(SUM(te.reimbursement_amount), 0) AS base_reimbursement_amount,
-  pa.id                                    AS adjustment_id,
-  COALESCE(pa.reimbursement_amount, 0)     AS adjustment_reimbursement_amount
-FROM workers w
-INNER JOIN (
-  SELECT worker_id FROM time_entries WHERE pay_period_id = $1
-  UNION
-  SELECT worker_id FROM payroll_adjustments WHERE pay_period_id = $1
-) scope ON scope.worker_id = w.id
-LEFT JOIN time_entries te
-  ON te.worker_id = w.id AND te.pay_period_id = $1
-LEFT JOIN payroll_adjustments pa
-  ON pa.pay_period_id = $1
- AND pa.worker_id = w.id
+  COALESCE(SUM(te.reimbursement_amount), 0) AS base_reimbursement_amount
+FROM time_entries te
+JOIN workers w ON te.worker_id = w.id
+WHERE te.pay_period_id = $1
 GROUP BY
   w.id,
   w.first_name,
   w.last_name,
-  w.employee_code,
-  pa.id,
-  pa.reimbursement_amount
+  w.employee_code
 ORDER BY
   w.last_name,
   w.first_name
@@ -227,14 +215,16 @@ function computeTotalAmount({
   return wages + parseNumericField(reimbursementAmount);
 }
 
+/**
+ * SPI reimbursement Amount = SUM(time_entries.reimbursement_amount) for the
+ * worker/period (Daily Entry). Payroll-page adjustments are not included.
+ */
 function resolveMoneyFields(agg) {
   const baseReimbursement = parseNumericField(agg.base_reimbursement_amount);
-  const adjustmentReimbursement = parseNumericField(agg.adjustment_reimbursement_amount);
-  const reimbursement = baseReimbursement + adjustmentReimbursement;
   return {
     baseReimbursement,
-    reimbursement,
-    hasAdjustment: agg.adjustment_id != null,
+    reimbursement: baseReimbursement,
+    hasAdjustment: false,
   };
 }
 
@@ -488,9 +478,28 @@ async function generateSPIRows(payPeriodId) {
   };
 }
 
-function generateSPICSV(rows, clientCode) {
+function formatPeriodFilenameDate(isoDate) {
+  const [year, month, day] = String(isoDate || '').split('T')[0].split('-');
+  if (!year || !month || !day) return null;
+  return `${month}.${day}.${year}`;
+}
+
+/**
+ * Paychex import download name from pay period dates, e.g.
+ * Paychex_Import_07.12.2026_to_07.25.2026.csv
+ */
+function buildPayrollExportFilename(payPeriod) {
+  if (!payPeriod) return null;
+  const start = formatPeriodFilenameDate(payPeriod.startDate || payPeriod.start_date);
+  const end = formatPeriodFilenameDate(payPeriod.endDate || payPeriod.end_date);
+  if (!start || !end) return null;
+  return `Paychex_Import_${start}_to_${end}.csv`;
+}
+
+function generateSPICSV(rows, clientCode, payPeriod) {
   const code = clientCode || process.env.PAYCHEX_CLIENT_CODE || PAYCHEX_COMPANY_ID;
-  const filename = `${code}_ta.csv`;
+  const filename =
+    buildPayrollExportFilename(payPeriod) || `${code}_ta.csv`;
   const lines = [EXPORT_CSV_HEADERS.join(',')];
 
   for (const row of rows) {
@@ -569,6 +578,7 @@ module.exports = {
   resolveMoneyFields,
   generateSPIRows,
   generateSPICSV,
+  buildPayrollExportFilename,
   validateSpiRows,
   stripMetadata,
   deletePayrollRow,

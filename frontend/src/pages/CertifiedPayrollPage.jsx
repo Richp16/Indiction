@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiGet, apiPatch, apiPost, apiPostDownload } from '../api/client';
+import { downloadFile } from '../utils/downloadFile';
+import PaychexSyncButton from '../components/PaychexSyncButton';
 import DailyHourLogSkeleton from './certifiedPayroll/DailyHourLogSkeleton';
 import Wh347SupplementSkeleton from './certifiedPayroll/Wh347SupplementSkeleton';
 import { useCertifiedPayrollData } from './certifiedPayroll/useCertifiedPayrollData';
@@ -364,21 +366,19 @@ export default function CertifiedPayrollPage() {
       token
     );
     const downloadName = filename || `WH347-${site?.job_code || 'site'}-${weekEndingDate}.pdf`;
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = downloadName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
+    const result = await downloadFile(blob, downloadName, 'application/pdf');
+    if (!result.success && !result.cancelled) {
+      throw new Error('Failed to save PDF. Please try again.');
+    }
   }
 
   async function resyncFromPaychex() {
-    if (!selectedSite || !selectedPayPeriodId || !weekEndingDate || !selectedPeriod) return;
-    setIsResyncing(true);
+    if (!selectedSite || !selectedPayPeriodId || !weekEndingDate || !selectedPeriod) {
+      throw new Error('Select a job site and pay period before syncing.');
+    }
     setError('');
     setSuccessMessage('');
+    setIsResyncing(true);
     try {
       const result = await apiPost(
         '/api/certified-payroll/resync',
@@ -400,8 +400,10 @@ export default function CertifiedPayrollPage() {
       setPayrollDebug(result.debug || null);
       setSuccessMessage('Synced from Paychex');
       window.setTimeout(() => setSuccessMessage(''), 3000);
+      return 'Synced from Paychex';
     } catch (err) {
       setError(err.message || 'Failed to sync from Paychex');
+      throw err;
     } finally {
       setIsResyncing(false);
     }
@@ -589,17 +591,14 @@ export default function CertifiedPayrollPage() {
           )}
         </select>
 
-        <button
-          type="button"
+        <PaychexSyncButton
+          label="Re-sync from Paychex"
+          token={token}
+          onSync={resyncFromPaychex}
+          disabled={!selectedSite || !weekEndingDate || isLoadingPageData}
+          className=""
           style={secondaryButtonStyle}
-          onClick={() => resyncFromPaychex().catch((err) => setError(err.message))}
-          disabled={!selectedSite || !weekEndingDate || isResyncing || isLoadingPageData}
-          aria-busy={isResyncing}
-        >
-          {isResyncing && <span className="spinner" aria-hidden="true" />}
-          <span>{isResyncing ? 'Syncing…' : 'Re-sync from Paychex'}</span>
-          {isResyncing && <span className="sr-only">Syncing from Paychex</span>}
-        </button>
+        />
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>Contractor role</span>

@@ -150,6 +150,7 @@ async function createDailyEntryInTransaction(client, payload) {
     payPeriodId: bodyPayPeriodId,
     enteredBy,
     paychexComponentId,
+    allowNegative = false,
   } = payload;
 
   const dateWorked = normalizeDate(rawDateWorked);
@@ -168,6 +169,7 @@ async function createDailyEntryInTransaction(client, payload) {
     paychexComponentId: isHoursPayCode(payCode) ? undefined : paychexComponentId,
     hours,
     reimbursementAmount,
+    allowNegative,
   });
 
   const baseArgs = {
@@ -180,7 +182,8 @@ async function createDailyEntryInTransaction(client, payload) {
     enteredBy,
   };
 
-  if (resolved.paychexComponentId === 'REGULAR') {
+  // Negative corrections skip OT auto-split — insert as-is for the selected pay code.
+  if (resolved.paychexComponentId === 'REGULAR' && resolved.hours > 0) {
     const workedSoFar = await getWorkerWeeklyHours(workerId, dateWorked, payPeriod.id);
     const remainingRegular = Math.max(0, OT_WEEKLY_CAP - workedSoFar);
     const requestedHours = resolved.hours;
@@ -247,6 +250,87 @@ async function createDailyEntryInTransaction(client, payload) {
   });
 }
 
+async function applyDeltaToExistingDailyEntry(client, existingId, {
+  hoursDelta,
+  reimbursementDelta,
+  componentName,
+  componentRate,
+  laborClassificationId,
+  enteredBy,
+}) {
+  const existingResult = await client.query(
+    'SELECT * FROM daily_time_entries WHERE id = $1 FOR UPDATE',
+    [existingId]
+  );
+  const entry = existingResult.rows[0];
+  if (!entry) {
+    throw new DailyEntryError('Entry not found', 404);
+  }
+
+  const newHours = Number(entry.hours_worked) + Number(hoursDelta || 0);
+  const newReimbursement =
+    Number(entry.reimbursement_amount) + Number(reimbursementDelta || 0);
+
+  if (newHours === 0 && newReimbursement === 0) {
+    await client.query('DELETE FROM daily_time_entries WHERE id = $1', [existingId]);
+    const aggregate = await recalcAggregatedTimeEntry(client, {
+      workerId: entry.worker_id,
+      jobSiteId: entry.job_site_id,
+      payPeriodId: entry.pay_period_id,
+      payCode: entry.pay_code,
+    });
+    return {
+      daily: null,
+      aggregate,
+      split: false,
+      correction: true,
+      deleted: true,
+      message: 'Correction applied; entry netted to zero and was removed.',
+    };
+  }
+
+  const hourSplit = splitHoursByPayCode(entry.pay_code, newHours);
+  const updated = await client.query(
+    `UPDATE daily_time_entries
+     SET hours_worked = $1,
+         regular_hours = $2,
+         overtime_hours = $3,
+         doubletime_hours = $4,
+         reimbursement_amount = $5,
+         component_name = COALESCE($6, component_name),
+         component_rate = COALESCE($7, component_rate),
+         labor_classification_id = COALESCE($8, labor_classification_id)
+     WHERE id = $9
+     RETURNING *`,
+    [
+      newHours,
+      hourSplit.regular_hours,
+      hourSplit.overtime_hours,
+      hourSplit.doubletime_hours,
+      newReimbursement,
+      componentName || null,
+      componentRate ?? null,
+      laborClassificationId || null,
+      existingId,
+    ]
+  );
+
+  const aggregate = await recalcAggregatedTimeEntry(client, {
+    workerId: entry.worker_id,
+    jobSiteId: entry.job_site_id,
+    payPeriodId: entry.pay_period_id,
+    payCode: entry.pay_code,
+  });
+
+  return {
+    daily: updated.rows[0],
+    aggregate,
+    split: false,
+    correction: true,
+    message: 'Correction applied to existing entry.',
+  };
+}
+
 async function createSingleDailyEntry(client, args) {
   const {
     workerId,
@@ -275,11 +359,24 @@ async function createSingleDailyEntry(client, args) {
   );
 
   if (dupCheck.rows.length > 0) {
-    const error = new DailyEntryError(
+    const hoursNum = Number(hours) || 0;
+    const reimbNum = Number(reimbursementAmount) || 0;
+    // Admin negative corrections adjust the existing row instead of inserting a conflict.
+    if (hoursNum < 0 || reimbNum < 0) {
+      return applyDeltaToExistingDailyEntry(client, dupCheck.rows[0].id, {
+        hoursDelta: hoursNum,
+        reimbursementDelta: reimbNum,
+        componentName,
+        componentRate,
+        laborClassificationId,
+        enteredBy,
+      });
+    }
+
+    throw new DailyEntryError(
       'An entry already exists for this worker, job site, pay code, and date.',
       409
     );
-    throw error;
   }
 
   const daily = await insertDailyRow(client, {
@@ -312,7 +409,16 @@ async function createSingleDailyEntry(client, args) {
     enteredBy,
   });
 
-  return { daily, aggregate, split: false };
+  return {
+    daily,
+    aggregate,
+    split: false,
+    correction: hours < 0 || Number(reimbursementAmount) < 0,
+    message:
+      hours < 0 || Number(reimbursementAmount) < 0
+        ? 'Correction entry saved.'
+        : undefined,
+  };
 }
 
 async function createDailyEntry(payload) {

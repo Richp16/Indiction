@@ -1,6 +1,6 @@
 const express = require('express');
 const { query } = require('../db');
-const { getAggregatedSummary, getCompanyEarnings, generateCSV, EMPLOYER_LIABILITY_RATE } = require('../services/aggregation');
+const { getAggregatedSummary, getCompanyEarnings, getCompanyReimbursements, generateCSV, EMPLOYER_LIABILITY_RATE } = require('../services/aggregation');
 const { subtractBusinessDays } = require('../utils/businessDays');
 const { requireRole } = require('../middleware/roleGuard');
 const {
@@ -25,7 +25,34 @@ async function getCurrentPayPeriod(req, res) {
   }
 }
 
-async function loadPeriodEntries(payPeriodId) {
+async function getPayPeriodForDate(req, res) {
+  try {
+    const date = String(req.query.date || '').split('T')[0];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ message: 'date query param (YYYY-MM-DD) is required' });
+    }
+    const { resolvePayPeriodForDate } = require('../services/payPeriodResolver');
+    const period = await resolvePayPeriodForDate(date);
+    res.json(period);
+  } catch (error) {
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message });
+  }
+}
+
+async function loadPeriodEntries(payPeriodId, { enteredBy, workerId } = {}) {
+  const params = [payPeriodId];
+  const clauses = ['d.pay_period_id = $1'];
+
+  if (enteredBy) {
+    params.push(enteredBy);
+    clauses.push(`d.entered_by = $${params.length}`);
+  }
+  if (workerId) {
+    params.push(workerId);
+    clauses.push(`d.worker_id = $${params.length}`);
+  }
+
   const result = await query(
     `SELECT
        d.id,
@@ -46,20 +73,35 @@ async function loadPeriodEntries(payPeriodId) {
        d.created_at,
        w.first_name AS worker_first_name,
        w.last_name AS worker_last_name,
-       js.name AS job_site_name
+       w.employee_code AS worker_employee_code,
+       js.name AS job_site_name,
+       u.name AS entered_by_name,
+       u.email AS entered_by_email
      FROM daily_time_entries d
      JOIN workers w ON d.worker_id = w.id
      LEFT JOIN job_sites js ON d.job_site_id = js.id
-     WHERE d.pay_period_id = $1
+     LEFT JOIN users u ON d.entered_by = u.id
+     WHERE ${clauses.join(' AND ')}
      ORDER BY d.date_worked DESC, w.last_name, w.first_name`,
-    [payPeriodId]
+    params
   );
   return result.rows;
 }
 
+function csvEscape(value) {
+  if (value == null) return '';
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+
+/** Format numeric fields without intermediate rounding — use DB string as-is. */
+function csvNumeric(value) {
+  if (value == null || value === '') return '';
+  return String(value);
+}
+
 router.get('/current', getCurrentPayPeriod);
 
-router.get('/analysis', async (req, res) => {
+router.get('/analysis', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {
     const period = await resolvePayrollPeriodFromQuery({
       periodStart: req.query.periodStart,
@@ -67,10 +109,10 @@ router.get('/analysis', async (req, res) => {
       payPeriodId: req.query.payPeriodId,
     });
 
-    const [rows, totalEarnings, entries] = await Promise.all([
+    const [rows, totalEarnings, reimbursements] = await Promise.all([
       getAggregatedSummary(period.id),
       getCompanyEarnings(period.id),
-      loadPeriodEntries(period.id),
+      getCompanyReimbursements(period.id),
     ]);
     const employerLiability = totalEarnings * EMPLOYER_LIABILITY_RATE;
 
@@ -85,8 +127,10 @@ router.get('/analysis', async (req, res) => {
         status: period.status,
       },
       rows,
-      entries,
       totalEarnings,
+      totalReimbursements: reimbursements.total,
+      internalReimbursements: reimbursements.internal,
+      paychexRecurringReimbursements: reimbursements.paychexRecurring,
       employerLiability,
     });
   } catch (error) {
@@ -94,6 +138,95 @@ router.get('/analysis', async (req, res) => {
     res.status(status).json({ message: error.message });
   }
 });
+
+const ADMIN_ROLES = ['system_admin', 'payroll_admin'];
+
+/** Daily entries for verification — supervisors see only their own; admins see all. */
+router.get('/my-entries', async (req, res) => {
+  try {
+    const period = await resolvePayrollPeriodFromQuery({
+      periodStart: req.query.periodStart,
+      periodEnd: req.query.periodEnd,
+      payPeriodId: req.query.payPeriodId,
+    });
+
+    const isAdmin = ADMIN_ROLES.includes(req.user?.role);
+    const entries = await loadPeriodEntries(period.id, {
+      ...(isAdmin ? {} : { enteredBy: req.user.userId }),
+      workerId: req.query.workerId || undefined,
+    });
+
+    res.json({
+      payPeriod: {
+        id: period.id,
+        start_date: period.start_date,
+        end_date: period.end_date,
+        startDate: period.start_date,
+        endDate: period.end_date,
+        label: formatPeriodLabel(period.start_date, period.end_date),
+        status: period.status,
+      },
+      entries,
+      scope: isAdmin ? 'all' : 'own',
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message });
+  }
+});
+
+/**
+ * Admin CSV export of My Entries table (same query as /my-entries).
+ */
+async function exportMyEntriesCsv(req, res) {
+  try {
+    const period = await resolvePayrollPeriodFromQuery({
+      periodStart: req.query.periodStart,
+      periodEnd: req.query.periodEnd,
+      payPeriodId: req.query.payPeriodId,
+    });
+
+    const entries = await loadPeriodEntries(period.id, {
+      workerId: req.query.workerId || undefined,
+    });
+
+    const header = 'Date,Worker Name,Job Site,Pay Code,Hours,Reimbursement\n';
+    const csvBody = entries
+      .map((r) =>
+        [
+          String(r.entry_date || '').split('T')[0],
+          `${r.worker_first_name || ''} ${r.worker_last_name || ''}`.trim(),
+          r.job_site_name || '',
+          r.component_name || r.paychex_component_id || r.pay_code || '',
+          csvNumeric(r.hours),
+          csvNumeric(r.reimbursement_amount),
+        ]
+          .map(csvEscape)
+          .join(',')
+      )
+      .join('\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="my-entries-${period.id}.csv"`
+    );
+    res.send(header + csvBody);
+  } catch (error) {
+    console.error('[export] Failed to export daily entries:', error);
+    const status = error.statusCode || 500;
+    res.status(status).json({
+      message: error.message || 'Failed to export entries',
+      error: 'Failed to export entries',
+    });
+  }
+}
+
+router.get(
+  '/my-entries/export',
+  requireRole('system_admin', 'payroll_admin'),
+  exportMyEntriesCsv
+);
 
 router.get('/csv', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {
@@ -126,18 +259,28 @@ router.get('/csv', requireRole('system_admin', 'payroll_admin'), async (req, res
   }
 });
 
-router.get('/', async (req, res) => {
+router.get('/', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {
     const { payPeriodId } = req.query;
     if (!payPeriodId) {
       return res.status(400).json({ message: 'payPeriodId is required' });
     }
 
-    const rows = await getAggregatedSummary(payPeriodId);
-    const totalEarnings = await getCompanyEarnings(payPeriodId);
+    const [rows, totalEarnings, reimbursements] = await Promise.all([
+      getAggregatedSummary(payPeriodId),
+      getCompanyEarnings(payPeriodId),
+      getCompanyReimbursements(payPeriodId),
+    ]);
     const employerLiability = totalEarnings * EMPLOYER_LIABILITY_RATE;
 
-    res.json({ rows, totalEarnings, employerLiability });
+    res.json({
+      rows,
+      totalEarnings,
+      totalReimbursements: reimbursements.total,
+      internalReimbursements: reimbursements.internal,
+      paychexRecurringReimbursements: reimbursements.paychexRecurring,
+      employerLiability,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -185,4 +328,6 @@ async function getAlerts(req, res) {
 
 module.exports = router;
 module.exports.getCurrentPayPeriod = getCurrentPayPeriod;
+module.exports.getPayPeriodForDate = getPayPeriodForDate;
 module.exports.getAlerts = getAlerts;
+module.exports.exportMyEntriesCsv = exportMyEntriesCsv;

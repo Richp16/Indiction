@@ -20,6 +20,7 @@ async function resolveEntryPayFields({
   paychexComponentId,
   hours,
   reimbursementAmount,
+  allowNegative = false,
 }) {
   const workerResult = await query(
     'SELECT standard_rate, is_active FROM workers WHERE id = $1',
@@ -45,7 +46,10 @@ async function resolveEntryPayFields({
   if (isHoursPayCode(payCode)) {
     const definition = getPayCodeDefinition(payCode);
     const hoursValue = Number(hours) || 0;
-    if (hoursValue <= 0) {
+    if (hoursValue === 0) {
+      throw new EntryResolveError('Hours must be non-zero for wage entries', 400);
+    }
+    if (hoursValue < 0 && !allowNegative) {
       throw new EntryResolveError('Hours must be greater than zero for wage entries', 400);
     }
 
@@ -59,9 +63,16 @@ async function resolveEntryPayFields({
     };
   }
 
-  if (isReimbursementPayCode(payCode) || Number(reimbursementAmount) > 0) {
+  if (
+    isReimbursementPayCode(payCode) ||
+    Number(reimbursementAmount) > 0 ||
+    (allowNegative && Number(reimbursementAmount) < 0)
+  ) {
     const amount = Number(reimbursementAmount) || 0;
-    if (amount <= 0) {
+    if (amount === 0) {
+      throw new EntryResolveError('Reimbursement amount must be non-zero', 400);
+    }
+    if (amount < 0 && !allowNegative) {
       throw new EntryResolveError('Reimbursement amount must be greater than zero', 400);
     }
 

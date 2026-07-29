@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { apiGet } from '../api/client';
+import { apiGet, apiPost } from '../api/client';
 import PayPeriodSelector from '../components/PayPeriodSelector';
+import PaychexSyncButton from '../components/PaychexSyncButton';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -13,33 +14,15 @@ function formatCurrency(value) {
   return currencyFormatter.format(Number.isFinite(amount) ? amount : 0);
 }
 
-function formatWorkerName(entry) {
-  const name = `${entry.worker_first_name || ''} ${entry.worker_last_name || ''}`.trim();
-  return name || '—';
-}
-
-function formatPayCode(entry) {
-  return entry.paychex_component_id || entry.component_name || '—';
-}
-
-function formatHours(entry) {
-  const hours = Number(entry.hours);
-  if (Number.isFinite(hours) && hours > 0) {
-    return hours.toFixed(1);
-  }
-  const amount = Number(entry.reimbursement_amount);
-  if (Number.isFinite(amount) && amount > 0) {
-    return `$${amount.toFixed(2)}`;
-  }
-  return '—';
-}
-
 export default function SummaryPage() {
   const { token } = useAuth();
   const [periods, setPeriods] = useState([]);
   const [selectedPayPeriodId, setSelectedPayPeriodId] = useState('');
-  const [entries, setEntries] = useState([]);
   const [totalEarnings, setTotalEarnings] = useState(0);
+  const [totalReimbursements, setTotalReimbursements] = useState(0);
+  const [internalReimbursements, setInternalReimbursements] = useState(0);
+  const [paychexRecurringReimbursements, setPaychexRecurringReimbursements] =
+    useState(0);
   const [employerLiability, setEmployerLiability] = useState(0);
   const [periodsLoading, setPeriodsLoading] = useState(true);
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -49,6 +32,8 @@ export default function SummaryPage() {
     () => periods.find((period) => period.id === selectedPayPeriodId) || null,
     [periods, selectedPayPeriodId]
   );
+
+  const cashRequirements = totalEarnings + totalReimbursements + employerLiability;
 
   useEffect(() => {
     async function loadPeriods() {
@@ -80,8 +65,10 @@ export default function SummaryPage() {
 
   useEffect(() => {
     if (!token || !selectedPeriod) {
-      setEntries([]);
       setTotalEarnings(0);
+      setTotalReimbursements(0);
+      setInternalReimbursements(0);
+      setPaychexRecurringReimbursements(0);
       setEmployerLiability(0);
       return undefined;
     }
@@ -99,14 +86,20 @@ export default function SummaryPage() {
         const analysis = await apiGet(`/api/summary/analysis?${params.toString()}`, token);
         if (cancelled) return;
 
-        setEntries(analysis.entries || []);
         setTotalEarnings(analysis.totalEarnings ?? 0);
+        setTotalReimbursements(analysis.totalReimbursements ?? 0);
+        setInternalReimbursements(analysis.internalReimbursements ?? 0);
+        setPaychexRecurringReimbursements(
+          analysis.paychexRecurringReimbursements ?? 0
+        );
         setEmployerLiability(analysis.employerLiability ?? 0);
       } catch (err) {
         if (cancelled) return;
         setError(err.message || 'Failed to load summary');
-        setEntries([]);
         setTotalEarnings(0);
+        setTotalReimbursements(0);
+        setInternalReimbursements(0);
+        setPaychexRecurringReimbursements(0);
         setEmployerLiability(0);
       } finally {
         if (!cancelled) setAnalysisLoading(false);
@@ -118,6 +111,35 @@ export default function SummaryPage() {
       cancelled = true;
     };
   }, [token, selectedPeriod]);
+
+  async function syncRecurringReimbursements() {
+    setError('');
+    const result = await apiPost(
+      '/api/paychex/sync-recurring-reimbursements',
+      {},
+      token
+    );
+
+    if (selectedPeriod) {
+      const params = new URLSearchParams({
+        periodStart: selectedPeriod.startDate || selectedPeriod.start_date,
+        periodEnd: selectedPeriod.endDate || selectedPeriod.end_date,
+      });
+      const analysis = await apiGet(
+        `/api/summary/analysis?${params.toString()}`,
+        token
+      );
+      setTotalEarnings(analysis.totalEarnings ?? 0);
+      setTotalReimbursements(analysis.totalReimbursements ?? 0);
+      setInternalReimbursements(analysis.internalReimbursements ?? 0);
+      setPaychexRecurringReimbursements(
+        analysis.paychexRecurringReimbursements ?? 0
+      );
+      setEmployerLiability(analysis.employerLiability ?? 0);
+    }
+
+    return result.message || 'Recurring reimbursements synced.';
+  }
 
   if (periodsLoading) {
     return <p>Loading…</p>;
@@ -133,15 +155,31 @@ export default function SummaryPage() {
         onChange={setSelectedPayPeriodId}
       />
 
+      <PaychexSyncButton
+        label="Sync Paychex recurring reimbursements"
+        token={token}
+        syncType="recurring_reimbursements"
+        onSync={syncRecurringReimbursements}
+      />
+
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
       {analysisLoading && <p>Loading analysis…</p>}
 
       <section style={statsSectionStyle}>
         <div style={statCardStyle}>
-          <h2 style={statTitleStyle}>Company Total Earnings</h2>
+          <h2 style={statTitleStyle}>Total Gross Pay</h2>
           <p style={statValueStyle}>{formatCurrency(totalEarnings)}</p>
           <p style={statSubtextStyle}>
             Includes regular, overtime, and PTO. Excludes reimbursements.
+          </p>
+        </div>
+        <div style={statCardStyle}>
+          <h2 style={statTitleStyle}>Total Reimbursements</h2>
+          <p style={statValueStyle}>{formatCurrency(totalReimbursements)}</p>
+          <p style={statSubtextStyle}>
+            Internal (Daily Entry): {formatCurrency(internalReimbursements)}
+            <br />
+            Paychex recurring: {formatCurrency(paychexRecurringReimbursements)}
           </p>
         </div>
         <div style={statCardStyle}>
@@ -151,38 +189,14 @@ export default function SummaryPage() {
             Estimated employer liabilities at 8% of total earnings.
           </p>
         </div>
+        <div style={statCardStyle} className="summary-kpi-cash">
+          <h2 style={statTitleStyle}>Cash Requirements</h2>
+          <p style={statValueStyle}>{formatCurrency(cashRequirements)}</p>
+          <p style={statSubtextStyle}>
+            Total Gross Pay + Total Reimbursements + Employer Liability Cost.
+          </p>
+        </div>
       </section>
-
-      {!analysisLoading && entries.length === 0 && !error && (
-        <p>No time entries for this pay period.</p>
-      )}
-
-      {!analysisLoading && entries.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Worker</th>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Job Site</th>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Date</th>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>Pay Code</th>
-              <th style={{ textAlign: 'right', borderBottom: '1px solid #ccc' }}>Hours</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry) => (
-              <tr key={entry.id}>
-                <td style={{ borderBottom: '1px solid #eee' }}>{formatWorkerName(entry)}</td>
-                <td style={{ borderBottom: '1px solid #eee' }}>{entry.job_site_name || '—'}</td>
-                <td style={{ borderBottom: '1px solid #eee' }}>{entry.entry_date || '—'}</td>
-                <td style={{ borderBottom: '1px solid #eee' }}>{formatPayCode(entry)}</td>
-                <td style={{ textAlign: 'right', borderBottom: '1px solid #eee' }}>
-                  {formatHours(entry)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
     </div>
   );
 }
@@ -198,7 +212,7 @@ const statCardStyle = {
   flex: '1 1 280px',
   padding: '1rem',
   background: '#f7f7f7',
-  borderRadius: 4,
+  borderRadius: 6,
 };
 
 const statTitleStyle = {
@@ -208,13 +222,13 @@ const statTitleStyle = {
 };
 
 const statValueStyle = {
-  margin: '0 0 0.5rem',
+  margin: 0,
   fontSize: '1.75rem',
   fontWeight: 700,
 };
 
 const statSubtextStyle = {
-  margin: 0,
-  color: '#666',
+  margin: '0.5rem 0 0',
   fontSize: '0.875rem',
+  color: '#666',
 };

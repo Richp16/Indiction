@@ -1,5 +1,4 @@
 const { formatPaychexErrorForLog } = require('./paychexErrors');
-const { roundMoney } = require('./payrollTaxEstimate');
 const {
   getCompanyChecksForHistory,
   indexChecksByWorker,
@@ -39,17 +38,19 @@ function isEmployeeContribution(item) {
 }
 
 function sumAmounts(items) {
-  return roundMoney(
-    (items || []).reduce((total, item) => total + toNumber(item.amount ?? item.value ?? item.payAmount), 0)
+  return (items || []).reduce(
+    (total, item) => total + toNumber(item.amount ?? item.value ?? item.payAmount),
+    0
   );
 }
 
 function getEarningsTotal(check) {
-  if (check.grossEarnings != null) return roundMoney(check.grossEarnings);
-  if (check.grossPay != null) return roundMoney(check.grossPay);
+  if (check.grossEarnings != null) return toNumber(check.grossEarnings);
+  if (check.grossPay != null) return toNumber(check.grossPay);
   const earnings = check.earnings || check.payComponents || [];
-  return roundMoney(
-    earnings.reduce((total, item) => total + toNumber(item.amount ?? item.value ?? item.payAmount), 0)
+  return earnings.reduce(
+    (total, item) => total + toNumber(item.amount ?? item.value ?? item.payAmount),
+    0
   );
 }
 
@@ -79,14 +80,14 @@ function classifyDeduction(item) {
   const amount = toNumber(item.amount ?? item.value ?? item.payAmount);
   if (amount <= 0) return null;
   if (isInformationalComponent(item) || !isEmployeeContribution(item)) return null;
-  return { label, amount: roundMoney(amount) };
+  return { label, amount };
 }
 
 function parseCheck(check) {
   if (!check) return null;
 
   const grossPay = getEarningsTotal(check);
-  const netPay = roundMoney(check.netPay ?? check.netPayAmount ?? check.netAmount ?? 0);
+  const checkNetPay = toNumber(check.netPay ?? check.netPayAmount ?? check.netAmount ?? 0);
 
   const taxes = (check.taxes || check.taxDeductions || []).filter(
     (item) => !isInformationalComponent(item) && isEmployeeContribution(item)
@@ -103,11 +104,11 @@ function parseCheck(check) {
     if (bucket === 'federal') federalWithholding += amount;
     else if (bucket === 'ss' || bucket === 'medicare') fica += amount;
     else if (bucket === 'state') {
-      otherDeductions.push({ label: 'State Tax', amount: roundMoney(amount) });
+      otherDeductions.push({ label: 'State Tax', amount });
     } else {
       otherDeductions.push({
         label: String(tax.name || tax.description || 'Other Tax').trim(),
-        amount: roundMoney(amount),
+        amount,
       });
     }
   }
@@ -120,19 +121,17 @@ function parseCheck(check) {
     if (parsed) otherDeductions.push(parsed);
   }
 
-  federalWithholding = roundMoney(federalWithholding);
-  fica = roundMoney(fica);
+  const totalOther = otherDeductions.reduce((sum, item) => sum + item.amount, 0);
+  const totalDeductions = federalWithholding + fica + totalOther;
 
-  const totalOther = roundMoney(otherDeductions.reduce((sum, item) => sum + item.amount, 0));
-  const totalDeductions = roundMoney(federalWithholding + fica + totalOther);
-
-  if (grossPay <= 0 && netPay <= 0 && totalDeductions <= 0) {
+  if (grossPay <= 0 && checkNetPay <= 0 && totalDeductions <= 0) {
     return null;
   }
 
   return {
     grossPay,
-    netPay: netPay || roundMoney(grossPay - totalDeductions),
+    // Prefer Paychex-reported net; only estimate when missing/zero.
+    netPay: checkNetPay || grossPay - totalDeductions,
     federalWithholding,
     fica,
     otherDeductions,

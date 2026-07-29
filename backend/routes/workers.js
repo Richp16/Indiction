@@ -176,10 +176,6 @@ router.get('/:id/weekly-hours', async (req, res) => {
   try {
     const { date, payPeriodId } = req.query;
 
-    if (!payPeriodId) {
-      return res.status(400).json({ message: 'payPeriodId is required' });
-    }
-
     const workerResult = await query(
       `SELECT id FROM workers
        WHERE id = $1 AND is_active = true AND standard_rate IS NOT NULL`,
@@ -195,6 +191,16 @@ router.get('/:id/weekly-hours', async (req, res) => {
         ? String(date).split('T')[0]
         : new Date().toISOString().split('T')[0];
 
+    const { resolvePayPeriodForDate } = require('../services/payPeriodResolver');
+    let resolvedPeriodId = payPeriodId || null;
+    try {
+      const period = await resolvePayPeriodForDate(entryDate, payPeriodId || null);
+      resolvedPeriodId = period.id;
+    } catch (error) {
+      const status = error.statusCode || 400;
+      return res.status(status).json({ message: error.message });
+    }
+
     const { sunday, saturday } = getWeekBounds(entryDate);
 
     const result = await query(
@@ -208,7 +214,7 @@ router.get('/:id/weekly-hours', async (req, res) => {
          AND date_worked <= $4
          AND pay_code IN ('REGULAR', 'OT')
        GROUP BY pay_code`,
-      [req.params.id, payPeriodId, sunday, saturday]
+      [req.params.id, resolvedPeriodId, sunday, saturday]
     );
 
     let regularHours = 0;
@@ -272,6 +278,53 @@ router.get('/:id/pay-components', async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
+
+/**
+ * Cached Paychex recurring reimbursements for Daily Entry admin warning.
+ * Reads local DB only — does not call Paychex live.
+ */
+router.get(
+  '/:id/recurring-reimbursements',
+  requireRole('system_admin', 'payroll_admin'),
+  async (req, res) => {
+    try {
+      const workerResult = await query(`SELECT id FROM workers WHERE id = $1`, [
+        req.params.id,
+      ]);
+      if (workerResult.rows.length === 0) {
+        return res.status(404).json({ message: 'Worker not found' });
+      }
+
+      const result = await query(
+        `SELECT
+           amount,
+           paychex_pay_component_id,
+           component_name,
+           recurring,
+           last_synced_at
+         FROM worker_recurring_reimbursements
+         WHERE worker_id = $1
+           AND recurring = true
+         ORDER BY component_name NULLS LAST, paychex_pay_component_id`,
+        [req.params.id]
+      );
+
+      const items = result.rows.map((row) => ({
+        amount: Number(row.amount) || 0,
+        paychexPayComponentId: row.paychex_pay_component_id,
+        componentName: row.component_name,
+        recurring: row.recurring,
+        lastSyncedAt: row.last_synced_at,
+      }));
+
+      const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+
+      res.json({ items, totalAmount });
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  }
+);
 
 router.patch('/:id', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {

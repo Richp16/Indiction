@@ -1,33 +1,40 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { apiGet } from '../api/client';
+import { apiGet, apiPost } from '../api/client';
 import PayrollExport from '../components/PayrollExport';
 import PayPeriodSelector from '../components/PayPeriodSelector';
+import PaychexSyncButton from '../components/PaychexSyncButton';
 
 export default function PayrollPage() {
-  const { token } = useAuth();
+  const { token, isAdmin } = useAuth();
   const [periods, setPeriods] = useState([]);
   const [selectedPayPeriodId, setSelectedPayPeriodId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const loadPeriods = useCallback(async () => {
+    const data = await apiGet('/api/payroll/pay-periods', token);
+    const nextPeriods = data.periods || [];
+    setPeriods(nextPeriods);
+
+    setSelectedPayPeriodId((existing) => {
+      if (existing && nextPeriods.some((period) => period.id === existing)) {
+        return existing;
+      }
+      const current =
+        nextPeriods.find((period) => period.isCurrent) || nextPeriods[0] || null;
+      return current?.id || '';
+    });
+
+    return nextPeriods;
+  }, [token]);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       setError('');
       try {
-        const data = await apiGet('/api/payroll/pay-periods', token);
-        const nextPeriods = data.periods || [];
-        setPeriods(nextPeriods);
-
-        const current =
-          nextPeriods.find((period) => period.isCurrent) || nextPeriods[0] || null;
-        setSelectedPayPeriodId((existing) => {
-          if (existing && nextPeriods.some((period) => period.id === existing)) {
-            return existing;
-          }
-          return current?.id || '';
-        });
+        await loadPeriods();
       } catch (err) {
         setError(err.message || 'Failed to load pay periods');
         setPeriods([]);
@@ -37,7 +44,14 @@ export default function PayrollPage() {
       }
     }
     load();
-  }, [token]);
+  }, [loadPeriods]);
+
+  async function syncPayPeriods() {
+    setError('');
+    const result = await apiPost('/api/payroll/sync-pay-periods', {}, token);
+    await loadPeriods();
+    return result.message || 'Pay periods synced.';
+  }
 
   if (loading) {
     return <p>Loading…</p>;
@@ -46,6 +60,15 @@ export default function PayrollPage() {
   return (
     <div>
       <h1>Payroll</h1>
+
+      {isAdmin && (
+        <PaychexSyncButton
+          label="Sync Pay Periods"
+          token={token}
+          syncType="pay_periods"
+          onSync={syncPayPeriods}
+        />
+      )}
 
       <PayPeriodSelector
         periods={periods}
@@ -56,7 +79,7 @@ export default function PayrollPage() {
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
 
       {selectedPayPeriodId && (
-        <PayrollExport payPeriodId={selectedPayPeriodId} token={token} showInstructions />
+        <PayrollExport payPeriodId={selectedPayPeriodId} token={token} />
       )}
     </div>
   );

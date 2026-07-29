@@ -1,16 +1,16 @@
 const cron = require('node-cron');
 const { query } = require('../db');
-const { runFullSync } = require('../services/paychexSync');
+const { runAllSyncsGuarded } = require('../services/paychexSyncScheduler');
 const { retryFailedSubmission } = require('../services/paychexSubmit');
 const { subtractBusinessDays } = require('../utils/businessDays');
 
 function startCronJobs() {
   cron.schedule('0 6 * * *', async () => {
-    try {
-      const results = await runFullSync();
-      console.log('[cron] Daily sync completed:', results);
-    } catch (error) {
-      console.error('[cron] Daily sync failed:', error.message);
+    const result = await runAllSyncsGuarded('cron-daily');
+    if (result.error) {
+      console.error('[cron] Daily sync failed:', result.error.message || result.error);
+    } else if (!result.skipped) {
+      console.log('[cron] Daily sync completed');
     }
   });
 

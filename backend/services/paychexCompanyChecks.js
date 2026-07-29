@@ -1,6 +1,5 @@
 const { companyId } = require('../config/paychexApi');
 const { formatPaychexErrorForLog } = require('./paychexErrors');
-const { roundMoney } = require('./payrollTaxEstimate');
 const { resolveComponentLabel } = require('./paychexPayComponents');
 const { isPaychexPayPeriodId } = require('./paychexIds');
 const { isReimbursementComponentName } = require('../config/paychex');
@@ -311,8 +310,8 @@ function splitCheckEarnings(check, componentMap = new Map()) {
   }
 
   return {
-    taxableGross: roundMoney(taxableGross),
-    reimbursementAmount: roundMoney(reimbursementAmount),
+    taxableGross,
+    reimbursementAmount,
   };
 }
 
@@ -358,25 +357,21 @@ function parseCheckForSupplement(check, componentMap = new Map()) {
 
   const { taxableGross, reimbursementAmount } = splitCheckEarnings(check, componentMap);
   const grossPay = taxableGross;
-  const checkNetPay = roundMoney(check.netPay ?? check.netEarnings ?? check.netPayAmount ?? 0);
+  const checkNetPay = toNumber(check.netPay ?? check.netEarnings ?? check.netPayAmount ?? 0);
 
   const taxes = (check.taxes ?? check.taxWithholdings ?? check.taxDeductions ?? []).filter(
     isEmployeeTaxEntry
   );
 
-  const federalWithholding = roundMoney(
-    taxes
-      .filter((tax) => /FEDERAL|FIT|FEDERAL_INCOME/i.test(tax.taxType ?? tax.type ?? tax.name ?? ''))
-      .reduce((sum, tax) => sum + toNumber(tax.amount ?? tax.value ?? tax.payAmount), 0)
-  );
+  const federalWithholding = taxes
+    .filter((tax) => /FEDERAL|FIT|FEDERAL_INCOME/i.test(tax.taxType ?? tax.type ?? tax.name ?? ''))
+    .reduce((sum, tax) => sum + toNumber(tax.amount ?? tax.value ?? tax.payAmount), 0);
 
   // Existing FICA extraction from Paychex tax lines — formula unchanged.
   // WH-347 supplements recompute FICA as 7.65% of this taxable grossPay.
-  const fica = roundMoney(
-    taxes
-      .filter((tax) => /SOCIAL|MEDICARE/i.test(tax.taxType ?? tax.type ?? tax.name ?? ''))
-      .reduce((sum, tax) => sum + toNumber(tax.amount ?? tax.value ?? tax.payAmount), 0)
-  );
+  const fica = taxes
+    .filter((tax) => /SOCIAL|MEDICARE/i.test(tax.taxType ?? tax.type ?? tax.name ?? ''))
+    .reduce((sum, tax) => sum + toNumber(tax.amount ?? tax.value ?? tax.payAmount), 0);
 
   const otherDeductions = (check.deductions ?? check.benefitDeductions ?? [])
     .map((deduction) => {
@@ -384,7 +379,7 @@ function parseCheckForSupplement(check, componentMap = new Map()) {
       if (amount <= 0) return null;
       return {
         label: resolveComponentLabel(deduction, componentMap),
-        amount: roundMoney(amount),
+        amount,
       };
     })
     .filter(Boolean);
@@ -394,19 +389,23 @@ function parseCheckForSupplement(check, componentMap = new Map()) {
     if (/STATE/i.test(taxType)) {
       const amount = toNumber(tax.amount ?? tax.value ?? tax.payAmount);
       if (amount > 0) {
-        otherDeductions.push({ label: 'State Tax', amount: roundMoney(amount) });
+        otherDeductions.push({ label: 'State Tax', amount });
       }
     }
   }
 
   const otherTotal = otherDeductions.reduce((sum, item) => sum + item.amount, 0);
-  const computedNetPay = roundMoney(
-    taxableGross - federalWithholding - fica - otherTotal + reimbursementAmount
-  );
-  // Prefer Paychex net only when there is no reimbursement to re-add; otherwise
-  // recompute so reimbursements are included in net without being taxed.
-  const netPay =
-    reimbursementAmount > 0 ? computedNetPay : checkNetPay || computedNetPay;
+  // Diagnostic estimate only — never preferred over Paychex-reported net when present.
+  const computedNetPay =
+    taxableGross - federalWithholding - fica - otherTotal + reimbursementAmount;
+
+  // Always trust Paychex's own reported net pay when present — it accounts for
+  // every deduction type, including ones our classifier doesn't recognize
+  // (401k, garnishments, benefits, HSA, etc). Only fall back to our computed
+  // estimate when Paychex didn't return a net pay figure at all.
+  const netPay = checkNetPay || computedNetPay;
+  const netPayDrift = checkNetPay ? Math.abs(checkNetPay - computedNetPay) : 0;
+  const hasSignificantNetPayDrift = netPayDrift > 1;
 
   if (!loggedParsedCheck && (grossPay > 0 || reimbursementAmount > 0)) {
     loggedParsedCheck = true;
@@ -414,6 +413,9 @@ function parseCheckForSupplement(check, componentMap = new Map()) {
       grossPay: grossPay.toFixed(2),
       reimbursementAmount: reimbursementAmount.toFixed(2),
       netPay: netPay.toFixed(2),
+      checkNetPay: checkNetPay.toFixed(2),
+      computedNetPay: computedNetPay.toFixed(2),
+      netPayDrift: netPayDrift.toFixed(2),
       federalWithholding: federalWithholding.toFixed(2),
       fica: fica.toFixed(2),
       otherDeductions,
@@ -427,6 +429,10 @@ function parseCheckForSupplement(check, componentMap = new Map()) {
   return {
     grossPay,
     netPay,
+    checkNetPay: checkNetPay || null,
+    computedNetPay,
+    netPayDrift,
+    hasSignificantNetPayDrift,
     federalWithholding,
     fica,
     otherDeductions,

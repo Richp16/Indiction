@@ -7,8 +7,39 @@ const {
   deleteDailyEntry,
   DailyEntryError,
 } = require('../services/dailyEntryService');
+const { getWeekBounds } = require('../services/entryPayCode');
 
 const router = express.Router();
+
+const ADMIN_ROLES = ['system_admin', 'payroll_admin'];
+
+/**
+ * Superintendents (and other non-admins) may only enter time for the current
+ * Sunday–Saturday week. Admins may enter any date that maps to a pay period
+ * (validated later by dailyEntryService / resolvePayPeriodForDate).
+ */
+function assertEntryDateAllowedForRole(role, dateWorked) {
+  if (ADMIN_ROLES.includes(role)) {
+    return;
+  }
+
+  const date = String(dateWorked || '').split('T')[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const error = new Error('Work date is required');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+  const { sunday, saturday } = getWeekBounds(today);
+  if (date < sunday || date > saturday) {
+    const error = new Error(
+      'You do not have permission to enter time outside the current week.'
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+}
 
 function mapDailyRowToLegacyShape(row) {
   if (!row) return row;
@@ -34,16 +65,33 @@ router.post('/', async (req, res) => {
       reimbursementAmount,
     } = req.body;
 
+    const dateWorked = entry_date || entryDate;
+    assertEntryDateAllowedForRole(req.user?.role, dateWorked);
+
+    const allowNegative = ADMIN_ROLES.includes(req.user?.role);
+    const hoursNum = hours != null && hours !== '' ? Number(hours) : 0;
+    const reimbNum =
+      reimbursementAmount != null && reimbursementAmount !== ''
+        ? Number(reimbursementAmount)
+        : 0;
+
+    if (!allowNegative && (hoursNum < 0 || reimbNum < 0)) {
+      return res.status(403).json({
+        message: 'Only admins can enter negative hours or reimbursement corrections.',
+      });
+    }
+
     const result = await createDailyEntry({
       workerId,
       jobSiteId,
       payPeriodId,
       payCode,
       paychexComponentId,
-      dateWorked: entry_date || entryDate,
+      dateWorked,
       hours,
       reimbursementAmount,
       enteredBy: req.user.userId,
+      allowNegative,
     });
 
     if (result.split) {
@@ -55,8 +103,12 @@ router.post('/', async (req, res) => {
       });
     }
 
-    res.status(201).json({
+    const status = result.correction ? 200 : 201;
+    res.status(status).json({
       success: true,
+      correction: Boolean(result.correction),
+      deleted: Boolean(result.deleted),
+      message: result.message,
       entry: mapDailyRowToLegacyShape(result.daily),
     });
   } catch (error) {
@@ -151,3 +203,5 @@ router.delete('/:id', requireRole('system_admin', 'payroll_admin'), async (req, 
 });
 
 module.exports = router;
+module.exports.assertEntryDateAllowedForRole = assertEntryDateAllowedForRole;
+module.exports.ADMIN_ROLES = ADMIN_ROLES;

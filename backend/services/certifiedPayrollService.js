@@ -179,7 +179,7 @@ function calculateGrossThisJob(entries, rate) {
       totalSt += hours;
     }
   }
-  return roundMoney(totalSt * hourlyRate + totalOt * hourlyRate * 1.5);
+  return totalSt * hourlyRate + totalOt * hourlyRate * 1.5;
 }
 
 /**
@@ -211,7 +211,7 @@ const WH347_FICA_RATE = 0.0765;
  * intentionally ignored on this form (agency reference calculates it this way).
  */
 function computeWh347Fica(grossAllWork) {
-  return roundMoney((Number(grossAllWork) || 0) * WH347_FICA_RATE);
+  return (Number(grossAllWork) || 0) * WH347_FICA_RATE;
 }
 
 /** Supervisors are not covered classifications and never appear on WH-347. */
@@ -245,11 +245,12 @@ function mergeOtherDeductions(otherDeductions) {
   if (!otherDeductions?.length) {
     return { amount: 0, label: '' };
   }
-  const amount = roundMoney(otherDeductions.reduce((sum, item) => sum + Number(item.amount || 0), 0));
+  const amount = otherDeductions.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const label = otherDeductions.map((item) => item.label).filter(Boolean).join(', ');
   return { amount, label };
 }
 
+/** Round once at DB write boundary for NUMERIC(10,2) columns. */
 function formatMoneyField(value) {
   if (value == null || value === '') return null;
   return roundMoney(value);
@@ -279,14 +280,13 @@ function buildSupplementFromPaychex({ checkData, site, worker, mapped = null }) 
     deduction_other: other.amount,
     deduction_other_label: other.label,
     net_pay: mapped?.netPay ?? checkData.netPay,
-    reimbursement_amount: roundMoney(reimbursementAmount),
+    reimbursement_amount: reimbursementAmount,
     is_estimated: false,
     source: 'paychex',
     paycheck_id: mapped?.paycheckId || null,
     paychex_check_worker_id: mapped?.workerId || null,
-    total_deductions: roundMoney(
-      (Number(withholding) || 0) + fica + (Number(other.amount) || 0)
-    ),
+    total_deductions:
+      (Number(withholding) || 0) + fica + (Number(other.amount) || 0),
   };
 }
 
@@ -847,6 +847,7 @@ async function buildSupplementRows({
     checksByWorker,
     workersWithMultipleChecksInSamePayPeriod,
     checksFetchMeta,
+    componentMap,
   });
 
   const debug = {

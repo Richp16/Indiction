@@ -1,10 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiGet, apiPost } from '../api/client';
 
 const BASE_PAY_CODES = [
-  { id: 'REGULAR', label: 'Regular Hours', type: 'HOURS' },
-  { id: 'PTO', label: 'Paid Time Off', type: 'HOURS' },
+  { id: 'REGULAR', label: 'Hours', type: 'HOURS' },
 ];
 
 const GENERIC_REIMBURSE_CODE = {
@@ -15,6 +14,20 @@ const GENERIC_REIMBURSE_CODE = {
 
 function getToday() {
   return new Date().toISOString().split('T')[0];
+}
+
+/** Sunday–Saturday containing dateStr (UTC), matching backend getWeekBounds. */
+function getWeekBoundsClient(dateStr) {
+  const date = new Date(`${dateStr}T12:00:00Z`);
+  const day = date.getUTCDay();
+  const sunday = new Date(date);
+  sunday.setUTCDate(date.getUTCDate() - day);
+  const saturday = new Date(sunday);
+  saturday.setUTCDate(sunday.getUTCDate() + 6);
+  return {
+    sunday: sunday.toISOString().split('T')[0],
+    saturday: saturday.toISOString().split('T')[0],
+  };
 }
 
 function formatWeekdayDate(dateStr) {
@@ -33,7 +46,7 @@ function remainingOtColor(remaining) {
 }
 
 export default function DailyEntry() {
-  const { token } = useAuth();
+  const { token, isAdmin } = useAuth();
 
   const [period, setPeriod] = useState(null);
   const [jobSites, setJobSites] = useState([]);
@@ -53,11 +66,14 @@ export default function DailyEntry() {
   const [weeklyHours, setWeeklyHours] = useState(null);
   const [weeklyHoursLoading, setWeeklyHoursLoading] = useState(false);
   const [weeklyHoursRefresh, setWeeklyHoursRefresh] = useState(0);
+  const [paychexRecurringReimb, setPaychexRecurringReimb] = useState(null);
   const debounceRef = useRef(null);
 
   const payCodes = [...BASE_PAY_CODES, GENERIC_REIMBURSE_CODE];
   const selectedPayCode = payCodes.find((code) => code.id === selectedPayCodeId);
   const isReimbursementEntry = selectedPayCode?.type === 'REIMBURSEMENT';
+
+  const currentWeekBounds = useMemo(() => getWeekBoundsClient(getToday()), []);
 
   useEffect(() => {
     async function loadInitial() {
@@ -70,6 +86,16 @@ export default function DailyEntry() {
         ]);
         setPeriod(periodData);
         setJobSites((sitesData || []).filter((site) => site.is_active !== false));
+
+        if (!isAdmin) {
+          const today = getToday();
+          const { sunday, saturday } = getWeekBoundsClient(today);
+          if (today < sunday || today > saturday) {
+            setEntryDate(sunday);
+          } else {
+            setEntryDate(today);
+          }
+        }
       } catch (err) {
         setError(err.message || 'Failed to load page data');
       } finally {
@@ -77,7 +103,35 @@ export default function DailyEntry() {
       }
     }
     loadInitial();
-  }, [token]);
+  }, [token, isAdmin]);
+
+  // Admins: resolve pay period for the selected work date (supports past periods).
+  useEffect(() => {
+    if (!isAdmin || !token || !entryDate) return undefined;
+
+    let cancelled = false;
+    async function loadPeriodForDate() {
+      try {
+        const periodData = await apiGet(
+          `/api/pay-periods/for-date?date=${encodeURIComponent(entryDate)}`,
+          token
+        );
+        if (!cancelled) {
+          setPeriod(periodData);
+          setError('');
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPeriod(null);
+          setError(err.message || 'Selected date is not in a defined pay period');
+        }
+      }
+    }
+    loadPeriodForDate();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, token, entryDate]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -113,8 +167,39 @@ export default function DailyEntry() {
   useEffect(() => {
     if (!selectedWorker) {
       setSelectedPayCodeId('');
+      setPaychexRecurringReimb(null);
     }
   }, [selectedWorker]);
+
+  useEffect(() => {
+    if (!isAdmin || !selectedWorker || !token) {
+      setPaychexRecurringReimb(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function loadRecurringReimbursements() {
+      try {
+        const data = await apiGet(
+          `/api/workers/${selectedWorker.id}/recurring-reimbursements`,
+          token
+        );
+        if (!cancelled) {
+          setPaychexRecurringReimb(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setPaychexRecurringReimb(null);
+        }
+      }
+    }
+
+    loadRecurringReimbursements();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, selectedWorker, token]);
 
   useEffect(() => {
     if (!selectedWorker || !period) {
@@ -153,7 +238,7 @@ export default function DailyEntry() {
     setError('');
     setSavedMessage('');
 
-    if (!period || !selectedWorker || !selectedPayCode) {
+    if (!selectedWorker || !selectedPayCode) {
       setError('Please complete all required fields');
       return;
     }
@@ -161,28 +246,47 @@ export default function DailyEntry() {
       setError('Work Date is required');
       return;
     }
+    if (!isAdmin && !period) {
+      setError('Please complete all required fields');
+      return;
+    }
 
     const jobSiteId = selectedJobSiteId || null;
 
     if (selectedPayCode.type === 'HOURS') {
-      if (!hours || Number(hours) <= 0) {
+      const hoursValue = Number(hours);
+      if (!hours || hoursValue === 0 || Number.isNaN(hoursValue)) {
+        setError('Hours must be a non-zero value');
+        return;
+      }
+      if (!isAdmin && hoursValue < 0) {
         setError('Hours must be greater than zero for wage entries');
         return;
       }
-    } else if (!reimbursement || Number(reimbursement) <= 0) {
-      setError('Reimbursement amount must be greater than zero');
-      return;
+    } else {
+      const reimbValue = Number(reimbursement);
+      if (!reimbursement || reimbValue === 0 || Number.isNaN(reimbValue)) {
+        setError('Reimbursement amount must be a non-zero value');
+        return;
+      }
+      if (!isAdmin && reimbValue < 0) {
+        setError('Reimbursement amount must be greater than zero');
+        return;
+      }
     }
 
     const payload = {
       workerId: selectedWorker.id,
       jobSiteId,
-      payPeriodId: period.id,
       entry_date: entryDate,
       hours: isReimbursementEntry ? 0 : Number(hours) || 0,
       reimbursementAmount: isReimbursementEntry ? Number(reimbursement) : 0,
       payCode: selectedPayCodeId,
     };
+    // Admins omit payPeriodId so the backend resolves from the work date.
+    if (!isAdmin && period?.id) {
+      payload.payPeriodId = period.id;
+    }
 
     setSaving(true);
     try {
@@ -191,6 +295,8 @@ export default function DailyEntry() {
       setReimbursement('');
       if (result?.split) {
         setSavedMessage(result.message);
+      } else if (result?.correction) {
+        setSavedMessage(result.message || 'Correction applied.');
       } else {
         setSavedMessage('Entry saved successfully.');
       }
@@ -206,6 +312,18 @@ export default function DailyEntry() {
     return <p>Loading…</p>;
   }
 
+  const dateMin = isAdmin ? undefined : currentWeekBounds.sunday;
+  const dateMax = isAdmin ? undefined : currentWeekBounds.saturday;
+  const hoursValue = Number(hours);
+  const reimbValue = Number(reimbursement);
+  const isHoursCorrection =
+    isAdmin && !isReimbursementEntry && Number.isFinite(hoursValue) && hoursValue < 0;
+  const isReimbCorrection =
+    isAdmin && isReimbursementEntry && Number.isFinite(reimbValue) && reimbValue < 0;
+  const paychexRecurringTotal = Number(paychexRecurringReimb?.totalAmount) || 0;
+  const showPaychexRecurringWarning =
+    isAdmin && selectedWorker && paychexRecurringTotal > 0;
+
   return (
     <div>
       <h1>Daily Entry</h1>
@@ -213,6 +331,21 @@ export default function DailyEntry() {
       {period && (
         <p>
           Pay period: {period.start_date} – {period.end_date}
+          {isAdmin ? ' (resolved from work date)' : ''}
+        </p>
+      )}
+
+      {!isAdmin && (
+        <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
+          Work dates are limited to the current week ({currentWeekBounds.sunday} –{' '}
+          {currentWeekBounds.saturday}).
+        </p>
+      )}
+
+      {isAdmin && (
+        <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
+          Admins can enter time for any date that falls in a defined pay period,
+          including past periods.
         </p>
       )}
 
@@ -230,9 +363,12 @@ export default function DailyEntry() {
             id="entry-date"
             type="date"
             value={entryDate}
-            min={period?.start_date}
-            max={period?.end_date}
-            onChange={(e) => setEntryDate(e.target.value)}
+            min={dateMin}
+            max={dateMax}
+            onChange={(e) => {
+              setError('');
+              setEntryDate(e.target.value);
+            }}
             required
             style={{ display: 'block', width: '100%', padding: '0.5rem' }}
           />
@@ -291,9 +427,6 @@ export default function DailyEntry() {
                   >
                     {worker.firstName} {worker.lastName}
                     {worker.employeeCode ? ` — #${worker.employeeCode}` : ''}
-                    {worker.standardRate != null
-                      ? ` ($${Number(worker.standardRate).toFixed(2)}/hr)`
-                      : ''}
                   </button>
                 </li>
               ))}
@@ -366,12 +499,22 @@ export default function DailyEntry() {
               id="hours"
               type="number"
               step="0.5"
-              min="0.5"
+              min={isAdmin ? undefined : '0.5'}
               value={hours}
               onChange={(e) => setHours(e.target.value)}
               required
-              style={{ display: 'block', width: '100%', padding: '0.5rem' }}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '0.5rem',
+                color: isHoursCorrection ? '#b91c1c' : undefined,
+              }}
             />
+            {isHoursCorrection && (
+              <p style={{ margin: '0.35rem 0 0', color: '#b91c1c', fontSize: '0.875rem' }}>
+                Correction — this amount will be deducted from existing hours.
+              </p>
+            )}
           </div>
         )}
 
@@ -382,13 +525,59 @@ export default function DailyEntry() {
               id="reimbursement"
               type="number"
               step="0.01"
-              min="0.01"
+              min={isAdmin ? undefined : '0.01'}
               value={reimbursement}
               onChange={(e) => setReimbursement(e.target.value)}
               required
-              style={{ display: 'block', width: '100%', padding: '0.5rem' }}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '0.5rem',
+                color: isReimbCorrection ? '#b91c1c' : undefined,
+              }}
             />
+            {showPaychexRecurringWarning && (
+              <p
+                style={{
+                  margin: '0.5rem 0 0',
+                  padding: '0.5rem 0.75rem',
+                  background: '#fff7ed',
+                  border: '1px solid #fdba74',
+                  borderRadius: 4,
+                  color: '#9a3412',
+                  fontSize: '0.875rem',
+                }}
+              >
+                This worker has a recurring reimbursement in Paychex:{' '}
+                <strong>${paychexRecurringTotal.toFixed(2)}</strong> per pay period.
+                This is configured in Paychex and will be paid automatically — enter an
+                internal reimbursement here only if it is additional.
+              </p>
+            )}
+            {isReimbCorrection && (
+              <p style={{ margin: '0.35rem 0 0', color: '#b91c1c', fontSize: '0.875rem' }}>
+                Correction — this amount will be deducted from existing reimbursements.
+              </p>
+            )}
           </div>
+        )}
+
+        {!isReimbursementEntry && showPaychexRecurringWarning && (
+          <p
+            style={{
+              margin: '0 0 1rem',
+              padding: '0.5rem 0.75rem',
+              background: '#fff7ed',
+              border: '1px solid #fdba74',
+              borderRadius: 4,
+              color: '#9a3412',
+              fontSize: '0.875rem',
+            }}
+          >
+            Paychex recurring reimbursement:{' '}
+            <strong>${paychexRecurringTotal.toFixed(2)}</strong> per pay period
+            (paid automatically in Paychex).
+          </p>
         )}
 
         <button type="submit" disabled={saving}>

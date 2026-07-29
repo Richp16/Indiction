@@ -24,12 +24,6 @@ const selectStyle = {
   fontWeight: 400,
 };
 
-const viewingStyle = {
-  margin: '0 0 1rem',
-  color: '#01696f',
-  fontSize: '1rem',
-};
-
 /**
  * Shared pay-period dropdown used on Payroll and Summary pages.
  */
@@ -39,40 +33,29 @@ export default function PayPeriodSelector({
   onChange,
   disabled = false,
 }) {
-  const selectedPeriod =
-    periods.find((period) => period.id === selectedPayPeriodId) || null;
-
   return (
-    <>
-      <div style={toolbarStyle}>
-        <label style={labelStyle}>
-          Pay period
-          <select
-            aria-label="Pay period"
-            value={selectedPayPeriodId}
-            onChange={(event) => onChange(event.target.value)}
-            style={selectStyle}
-            disabled={disabled || periods.length === 0}
-          >
-            {periods.length === 0 ? (
-              <option value="">No pay periods available</option>
-            ) : (
-              periods.map((period) => (
-                <option key={period.id} value={period.id}>
-                  {period.label}
-                  {period.isCurrent ? ' (Current)' : ''}
-                </option>
-              ))
-            )}
-          </select>
-        </label>
-      </div>
-
-      {selectedPeriod && (
-        <p style={viewingStyle} aria-live="polite">
-          Viewing: <strong>{selectedPeriod.label}</strong>
-        </p>
-      )}
-    </>
+    <div style={toolbarStyle}>
+      <label style={labelStyle}>
+        Pay period
+        <select
+          aria-label="Pay period"
+          value={selectedPayPeriodId}
+          onChange={(event) => onChange(event.target.value)}
+          style={selectStyle}
+          disabled={disabled || periods.length === 0}
+        >
+          {periods.length === 0 ? (
+            <option value="">No pay periods with recorded hours yet</option>
+          ) : (
+            periods.map((period) => (
+              <option key={period.id} value={period.id}>
+                {period.label}
+                {period.isCurrent ? ' (Current)' : ''}
+              </option>
+            ))
+          )}
+        </select>
+      </label>
+    </div>
   );
 }

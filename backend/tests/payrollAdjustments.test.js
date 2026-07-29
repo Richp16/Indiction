@@ -23,15 +23,15 @@ describe('payrollAdjustments helpers (unit)', () => {
     assert.equal(parseMoney(null), 0);
   });
 
-  it('resolveMoneyFields adds base reimbursement + adjustment (no short pay)', () => {
+  it('resolveMoneyFields uses time_entries reimbursement only', () => {
     const resolved = resolveMoneyFields({
       base_reimbursement_amount: 40,
       adjustment_reimbursement_amount: 60,
       adjustment_id: 'some-uuid',
     });
     assert.equal(resolved.baseReimbursement, 40);
-    assert.equal(resolved.reimbursement, 100);
-    assert.equal(resolved.hasAdjustment, true);
+    assert.equal(resolved.reimbursement, 40);
+    assert.equal(resolved.hasAdjustment, false);
   });
 
   it('computeTotalAmount applies reimbursement without short pay', () => {
@@ -146,7 +146,7 @@ describe('payrollAdjustments persistence (integration)', () => {
     assert.equal(map.get(String(workerId)).short_pay_amount, 10);
   });
 
-  it('SPI emits Hourly + Reimbursement component rows from base + adjustment', async (t) => {
+  it('SPI Reimbursement rows come from time_entries only (ignores payroll_adjustments)', async (t) => {
     if (skip) {
       t.skip('DATABASE_URL / payroll_adjustments unavailable');
       return;
@@ -184,13 +184,57 @@ describe('payrollAdjustments persistence (integration)', () => {
     assert.ok(reimb);
     assert.equal(hourly.Hours, String(hourlyHours));
     assert.equal(hourly.Rate, String(RATE));
-    assert.equal(reimb.Amount, String(baseReimb + adjReimb));
+    assert.equal(reimb.Amount, String(baseReimb));
+    assert.equal(reimb.Rate, '');
+    assert.equal(reimb.Hours, '');
     assert.equal(hourly['Check Seq Number'], reimb['Check Seq Number']);
 
     const { csvString } = generateSPICSV(workerRows, '70205967');
     assert.equal(csvString.split('\n')[0], EXPORT_CSV_HEADERS.join(','));
-    assert.match(csvString, new RegExp(String(baseReimb + adjReimb)));
+    assert.match(csvString, new RegExp(String(baseReimb)));
     assert.doesNotMatch(csvString, /Short Pay/i);
+  });
+
+  it('payroll_adjustments alone do not create a Reimbursement SPI row', async (t) => {
+    if (skip) {
+      t.skip('DATABASE_URL / payroll_adjustments unavailable');
+      return;
+    }
+
+    if (createdTimeEntryIds.length) {
+      await query('DELETE FROM time_entries WHERE id = ANY($1::uuid[])', [
+        createdTimeEntryIds,
+      ]);
+      createdTimeEntryIds.length = 0;
+    }
+    await query(
+      `DELETE FROM payroll_adjustments WHERE pay_period_id = $1 AND worker_id = $2`,
+      [payPeriodId, workerId]
+    );
+
+    const inserted = await query(
+      `INSERT INTO time_entries (
+         worker_id, job_site_id, pay_period_id, pay_period_end_date,
+         paychex_component_id, component_name, hours, reimbursement_amount
+       ) VALUES ($1, $2, $3, $4::date, 'HOURLY', 'HOURLY', 40, 0)
+       RETURNING id`,
+      [workerId, siteId, payPeriodId, payPeriodEndDate]
+    );
+    createdTimeEntryIds.push(inserted.rows[0].id);
+
+    await upsertAdjustments(
+      payPeriodId,
+      [{ workerId, reimbursementAmount: 75, shortPayAmount: 0 }],
+      { asAbsolute: true }
+    );
+
+    const { rows } = await generateSPIRows(payPeriodId);
+    const workerRows = rows.filter(
+      (r) => String(r['Worker ID']) === String(employeeCode)
+    );
+    assert.equal(workerRows.length, 1);
+    assert.equal(workerRows[0]['Pay Component'], 'Hourly');
+    assert.ok(!workerRows.some((r) => r['Pay Component'] === 'Reimbursement'));
   });
 
   it('asAbsolute converts cell totals into reimbursement deltas', async (t) => {
@@ -198,6 +242,27 @@ describe('payrollAdjustments persistence (integration)', () => {
       t.skip('DATABASE_URL / payroll_adjustments unavailable');
       return;
     }
+
+    if (createdTimeEntryIds.length) {
+      await query('DELETE FROM time_entries WHERE id = ANY($1::uuid[])', [
+        createdTimeEntryIds,
+      ]);
+      createdTimeEntryIds.length = 0;
+    }
+    await query(
+      `DELETE FROM payroll_adjustments WHERE pay_period_id = $1 AND worker_id = $2`,
+      [payPeriodId, workerId]
+    );
+
+    const inserted = await query(
+      `INSERT INTO time_entries (
+         worker_id, job_site_id, pay_period_id, pay_period_end_date,
+         paychex_component_id, component_name, hours, reimbursement_amount
+       ) VALUES ($1, $2, $3, $4::date, 'HOURLY', 'HOURLY', 10, 30)
+       RETURNING id`,
+      [workerId, siteId, payPeriodId, payPeriodEndDate]
+    );
+    createdTimeEntryIds.push(inserted.rows[0].id);
 
     // Cell shows base 30 + prior adj; user sets absolute reimbursement to 50 → delta 20
     await upsertAdjustments(
@@ -207,7 +272,6 @@ describe('payrollAdjustments persistence (integration)', () => {
     );
 
     const map = await getAdjustmentsForPeriod(payPeriodId);
-    // base from seeded time entry is 30
     assert.equal(map.get(String(workerId)).reimbursement_amount, 20);
   });
 });

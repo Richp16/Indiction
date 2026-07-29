@@ -14,7 +14,7 @@ const usersRoutes = require('./routes/users');
 const laborClassificationsRoutes = require('./routes/laborClassifications');
 const companySettingsRoutes = require('./routes/companySettings');
 const certifiedPayrollRoutes = require('./routes/certifiedPayroll');
-const { runFullSync } = require('./services/paychexSync');
+const { startScheduledSyncs } = require('./services/paychexSyncScheduler');
 const { checkPaychexConnectivity } = require('./services/paychexHttp');
 const { startCronJobs } = require('./cron/jobs');
 
@@ -38,7 +38,13 @@ app.use('/api/job-sites', jobSitesRoutes);
 app.use('/api/entries', entriesRoutes);
 app.use('/api/summary', summaryRoutes);
 app.get('/api/pay-periods/current', summaryRoutes.getCurrentPayPeriod);
+app.get('/api/pay-periods/for-date', summaryRoutes.getPayPeriodForDate);
 app.get('/api/alerts', summaryRoutes.getAlerts);
+app.get(
+  '/api/daily-entries/export',
+  require('./middleware/roleGuard').requireRole('system_admin', 'payroll_admin'),
+  summaryRoutes.exportMyEntriesCsv
+);
 app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/submit', submitRoutes);
 app.use('/api/users', usersRoutes);
@@ -47,6 +53,7 @@ app.use('/api/job-site-rates', require('./routes/jobSiteRates'));
 app.use('/api/company-settings', companySettingsRoutes);
 app.use('/api/certified-payroll', certifiedPayrollRoutes);
 app.use('/api/paychex', require('./routes/paychex'));
+app.use('/api/sync', require('./routes/sync'));
 // Mount last: settings router is on /api and applies system_admin guard to all unmatched /api paths
 app.use('/api', settingsRoutes);
 
@@ -58,13 +65,7 @@ async function startup() {
     console.error(connectivity.message, connectivity.error);
   }
 
-  try {
-    const results = await runFullSync();
-    console.log('Initial Paychex sync completed:', results);
-  } catch (error) {
-    console.error('Initial Paychex sync failed:', error.message);
-  }
-
+  startScheduledSyncs();
   startCronJobs();
 }
 

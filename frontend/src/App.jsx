@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import DailyEntry from './pages/DailyEntry';
 import SummaryPage from './pages/SummaryPage';
+import MyEntriesPage from './pages/MyEntriesPage';
 import PayrollPage from './pages/PayrollPage';
 import ManageUsers from './pages/ManageUsers';
 import Settings from './pages/Settings';
@@ -47,9 +48,17 @@ export default function App() {
       />
       <Route path="/daily" element={<Navigate to="/daily-entry" replace />} />
       <Route
-        path="/summary"
+        path="/my-entries"
         element={
           <ProtectedRoute>
+            <MyEntriesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/summary"
+        element={
+          <ProtectedRoute requireAdmin>
             <SummaryPage />
           </ProtectedRoute>
         }
