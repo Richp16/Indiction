@@ -1,11 +1,9 @@
 import { useState, useEffect, useMemo, Fragment } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { apiGet } from '../api/client';
+import { apiGet, API_BASE_URL } from '../api/client';
 import PayPeriodSelector from '../components/PayPeriodSelector';
 import { downloadFile } from '../utils/downloadFile';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
 function formatWorkerName(entry) {
   const name = `${entry.worker_first_name || ''} ${entry.worker_last_name || ''}`.trim();
