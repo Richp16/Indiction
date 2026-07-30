@@ -95,7 +95,7 @@ function AppLayout({ children }) {
           <NavLink to="/daily-entry">Daily Entry</NavLink>
           <NavLink to="/my-entries">My Entries</NavLink>
           {isAdmin && <NavLink to="/summary">Summary</NavLink>}
-          <NavLink to="/payroll">Payroll</NavLink>
+          {isAdmin && <NavLink to="/payroll">Payroll</NavLink>}
           {isAdmin && (
             <>
               <NavLink to="/certified-payroll">Certified Payroll</NavLink>

@@ -66,7 +66,7 @@ export default function App() {
       <Route
         path="/payroll"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requireAdmin>
             <PayrollPage />
           </ProtectedRoute>
         }

@@ -547,7 +547,8 @@ function fillStatement(ctx, { company, weekEndingDate, statementCheckBoxes }) {
 
   setText(ctx, s.additionalRemarks, company?.additional_remarks, { maxFontSize: 8 });
   setText(ctx, s.certifyingOfficialRow1, nameTitle, { maxFontSize: 8 });
-  setText(ctx, s.signatureRow1, company?.certifying_official_name, { maxFontSize: 8 });
+  // Leave the signature box blank – no printed name in the signature field.
+  setText(ctx, s.signatureRow1, '', { maxFontSize: 8 });
   setText(ctx, s.dateRow1, formatLongDate(weekEndingDate));
   setText(ctx, s.email, company?.email, { maxFontSize: 7 });
 

@@ -164,7 +164,7 @@ async function buildWh347PdfLegacy({
     statement.drawText(site.address || '', { x: 160, y: 684, size: 7, font, color: black });
     statement.drawText(weekEndingDate, { x: 510, y: 684, size: 7, font, color: black });
     statement.drawText(
-      `${company.certifying_official_name || ''} ${company.certifying_official_title || ''}`.trim(),
+      `${company.certifying_official_title || ''}`.trim(),
       { x: 160, y: 100, size: 7, font, color: black }
     );
     statement.drawText(company.phone || '', { x: 160, y: 88, size: 7, font, color: black });
