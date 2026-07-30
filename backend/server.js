@@ -17,14 +17,23 @@ const certifiedPayrollRoutes = require('./routes/certifiedPayroll');
 const { startScheduledSyncs } = require('./services/paychexSyncScheduler');
 const { checkPaychexConnectivity } = require('./services/paychexHttp');
 const { startCronJobs } = require('./cron/jobs');
+const { pool } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Allow the local dev frontend and an optional deployed frontend origin.
+const allowedOrigins = ['http://localhost:5173'];
+
+if (process.env.FRONTEND_ORIGIN) {
+  allowedOrigins.push(process.env.FRONTEND_ORIGIN);
+}
+
 app.use(
   cors({
-    origin: 'http://localhost:5173',
+    origin: allowedOrigins,
     exposedHeaders: ['Content-Disposition'],
+    credentials: true,
   })
 );
 app.use(express.json());
@@ -58,6 +67,18 @@ app.use('/api/sync', require('./routes/sync'));
 app.use('/api', settingsRoutes);
 
 async function startup() {
+  // Log DATABASE_URL as seen by server.js at runtime.
+  console.log('[startup] DATABASE_URL:', process.env.DATABASE_URL);
+
+  // Basic DB connectivity check: run a simple SELECT 1 on startup.
+  try {
+    const result = await pool.query('SELECT 1 AS ok');
+    console.log('[startup] DB connectivity OK, result:', result.rows[0]);
+  } catch (error) {
+    console.error('[startup] DB connectivity FAILED:', error);
+  }
+
+  // Existing Paychex connectivity check.
   const connectivity = await checkPaychexConnectivity();
   if (connectivity.ok) {
     console.log(`${connectivity.message} (baseURL: ${connectivity.baseUrl})`);
@@ -65,6 +86,7 @@ async function startup() {
     console.error(connectivity.message, connectivity.error);
   }
 
+  // Existing scheduled syncs and cron jobs.
   startScheduledSyncs();
   startCronJobs();
 }
