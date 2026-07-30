@@ -255,12 +255,27 @@ async function syncCompanyPayPeriods({
     isStandardBiweeklyPeriod(period.startDate, period.endDate)
   );
 
+  const droppedPeriods = periods.filter(
+    (period) => !isStandardBiweeklyPeriod(period.startDate, period.endDate)
+  );
+
   console.log('[Paychex] Filtered to standard biweekly periods', {
     companyId: cid,
     totalFetched: periods.length,
     standardCount: standardPeriods.length,
-    droppedCount: periods.length - standardPeriods.length,
+    droppedCount: droppedPeriods.length,
   });
+  if (droppedPeriods.length > 0) {
+    console.log(
+      '[Paychex] Dropped non-biweekly catalog periods:',
+      droppedPeriods.map((period) => ({
+        payPeriodId: period.payPeriodId || period.pay_period_id,
+        startDate: period.startDate || period.start_date,
+        endDate: period.endDate || period.end_date,
+        status: period.status,
+      }))
+    );
+  }
 
   let insertedCount = 0;
   let updatedCount = 0;

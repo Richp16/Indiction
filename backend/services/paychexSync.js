@@ -230,11 +230,27 @@ async function syncPayPeriods() {
       isStandardBiweeklyPeriod(parseDate(period.startDate), parseDate(period.endDate))
     );
 
+    const droppedPeriods = periods.filter(
+      (period) =>
+        !isStandardBiweeklyPeriod(parseDate(period.startDate), parseDate(period.endDate))
+    );
+
     console.log('[sync] Filtered OPEN pay periods to standard biweekly only', {
       totalFetched: periods.length,
       standardCount: standardPeriods.length,
-      droppedCount: periods.length - standardPeriods.length,
+      droppedCount: droppedPeriods.length,
     });
+    if (droppedPeriods.length > 0) {
+      console.log(
+        '[sync] Dropped non-biweekly OPEN periods:',
+        droppedPeriods.map((period) => ({
+          payPeriodId: period.payPeriodId,
+          startDate: parseDate(period.startDate),
+          endDate: parseDate(period.endDate),
+          status: period.status,
+        }))
+      );
+    }
 
     let count = 0;
 
