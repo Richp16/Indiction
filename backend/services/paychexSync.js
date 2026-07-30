@@ -22,6 +22,17 @@ function addDays(dateStr, days) {
   return date.toISOString().split('T')[0];
 }
 
+const STANDARD_PERIOD_LENGTH_DAYS = 13; // inclusive: 14 calendar days (day 0 to day 13)
+
+function isStandardBiweeklyPeriod(startDate, endDate) {
+  if (!startDate || !endDate) return false;
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+  const diffDays = Math.round((end.getTime() - start.getTime()) / 86400000);
+  return diffDays === STANDARD_PERIOD_LENGTH_DAYS;
+}
+
 function formatSyncError(error) {
   return formatSyncErrorForUser(error);
 }
@@ -214,9 +225,20 @@ async function syncPayPeriods() {
     const periods = await paychexGet(
       `/companies/${companyId()}/payperiods?status=OPEN`
     );
+
+    const standardPeriods = periods.filter((period) =>
+      isStandardBiweeklyPeriod(parseDate(period.startDate), parseDate(period.endDate))
+    );
+
+    console.log('[sync] Filtered OPEN pay periods to standard biweekly only', {
+      totalFetched: periods.length,
+      standardCount: standardPeriods.length,
+      droppedCount: periods.length - standardPeriods.length,
+    });
+
     let count = 0;
 
-    for (const period of periods) {
+    for (const period of standardPeriods) {
       const paychexPeriodId = period.payPeriodId;
       const startDate = parseDate(period.startDate);
       const endDate = parseDate(period.endDate);
@@ -357,4 +379,5 @@ module.exports = {
   syncHistoricalPaychexPayPeriods,
   fetchWorkerHourlyRate,
   formatSyncError,
+  isStandardBiweeklyPeriod,
 };

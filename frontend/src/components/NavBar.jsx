@@ -34,7 +34,7 @@ export default function NavBar() {
     <nav className="navbar">
       <NavLink to="/" className="navbar-brand">
         <HardhatLogo />
-        FieldPay
+        Wellcraft Pay
       </NavLink>
 
       <div className="navbar-links">

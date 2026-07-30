@@ -26,7 +26,7 @@ export default function Login() {
 
   return (
     <div style={{ maxWidth: 400, margin: '4rem auto' }}>
-      <h1>FieldPay Login</h1>
+      <h1>Wellcraft Pay Login</h1>
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
       <form onSubmit={handleSubmit}>
         <div style={{ marginBottom: '1rem' }}>

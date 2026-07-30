@@ -42,6 +42,16 @@ function safeParseDate(value) {
   return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
 }
 
+const STANDARD_PERIOD_LENGTH_DAYS = 13; // inclusive: 14 calendar days
+
+function isStandardBiweeklyPeriod(startDate, endDate) {
+  const start = safeParseDate(startDate);
+  const end = safeParseDate(endDate);
+  if (!start || !end) return false;
+  const diffDays = Math.round((end.getTime() - start.getTime()) / 86400000);
+  return diffDays === STANDARD_PERIOD_LENGTH_DAYS;
+}
+
 function formatUtcMonthDay(date) {
   return date.toLocaleDateString('en-US', {
     month: 'short',
@@ -241,19 +251,30 @@ async function syncCompanyPayPeriods({
     status: statusList,
   });
 
+  const standardPeriods = periods.filter((period) =>
+    isStandardBiweeklyPeriod(period.startDate, period.endDate)
+  );
+
+  console.log('[Paychex] Filtered to standard biweekly periods', {
+    companyId: cid,
+    totalFetched: periods.length,
+    standardCount: standardPeriods.length,
+    droppedCount: periods.length - standardPeriods.length,
+  });
+
   let insertedCount = 0;
   let updatedCount = 0;
 
-  for (const period of periods) {
+  for (const period of standardPeriods) {
     const result = await upsertPaychexPayPeriod(cid, period);
     if (result === 'inserted') insertedCount += 1;
     else updatedCount += 1;
   }
 
-  console.log(`[Paychex] Synced ${periods.length} pay periods for company=${cid}`);
+  console.log(`[Paychex] Synced ${standardPeriods.length} standard biweekly pay periods for company=${cid}`);
 
   return {
-    fetchedCount: periods.length,
+    fetchedCount: standardPeriods.length,
     insertedCount,
     updatedCount,
     companyId: cid,
@@ -350,4 +371,5 @@ module.exports = {
   requireLocalPayPeriod,
   listLocalPayPeriods,
   mapStoredRow,
+  isStandardBiweeklyPeriod,
 };
