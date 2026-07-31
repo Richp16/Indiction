@@ -4,22 +4,30 @@ CREATE TABLE IF NOT EXISTS users (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email         TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
+  name          TEXT,
   role          TEXT NOT NULL CHECK (role IN ('superintendent', 'payroll_admin', 'system_admin')),
   created_at    TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS labor_classifications (
+  id          SERIAL PRIMARY KEY,
+  name        VARCHAR(100) NOT NULL UNIQUE,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS workers (
-  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  paychex_worker_id   TEXT UNIQUE NOT NULL,
-  employee_code       TEXT,
-  first_name          TEXT NOT NULL,
-  last_name           TEXT NOT NULL,
-  worker_type         VARCHAR(2) DEFAULT 'J',
-  exemption_type      TEXT DEFAULT 'NON_EXEMPT',
-  pay_type            TEXT DEFAULT 'HOURLY',
-  standard_rate       NUMERIC(10,2),
-  is_active           BOOLEAN DEFAULT true,
-  last_synced_at      TIMESTAMPTZ
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  paychex_worker_id       TEXT UNIQUE NOT NULL,
+  employee_code           TEXT,
+  first_name              TEXT NOT NULL,
+  last_name               TEXT NOT NULL,
+  worker_type             VARCHAR(2) DEFAULT 'J',
+  exemption_type          TEXT DEFAULT 'NON_EXEMPT',
+  pay_type                TEXT DEFAULT 'HOURLY',
+  standard_rate           NUMERIC(10,2),
+  is_active               BOOLEAN DEFAULT true,
+  last_synced_at          TIMESTAMPTZ,
+  labor_classification_id INTEGER REFERENCES labor_classifications(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS worker_pay_components (
@@ -53,7 +61,8 @@ CREATE TABLE IF NOT EXISTS job_sites (
   wage_determination_no VARCHAR(100),
   certified_payroll_count INTEGER DEFAULT 0,
   is_active        BOOLEAN DEFAULT true,
-  last_synced_at   TIMESTAMPTZ
+  last_synced_at   TIMESTAMPTZ,
+  int_id           INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS pay_periods (
@@ -103,12 +112,6 @@ CREATE TABLE IF NOT EXISTS worker_job_site_rates (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (worker_id, job_site_id)
-);
-
-CREATE TABLE IF NOT EXISTS labor_classifications (
-  id          SERIAL PRIMARY KEY,
-  name        VARCHAR(100) NOT NULL UNIQUE,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
 ALTER TABLE workers
@@ -213,4 +216,20 @@ CREATE TABLE IF NOT EXISTS sync_log (
   status      TEXT NOT NULL,
   message     TEXT,
   ran_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS biweekly_raw (
+  id                    SERIAL PRIMARY KEY,
+  employee_id           INTEGER,
+  employee_last_name    TEXT,
+  employee_first_name   TEXT,
+  pay_period_end_date   DATE,
+  date_worked           DATE,
+  week_group            INTEGER,
+  project               TEXT,
+  project_code          TEXT,
+  hours_worked          NUMERIC(8,2),
+  regular_hours         NUMERIC(8,2),
+  overtime_hours        NUMERIC(8,2),
+  reimbursement         NUMERIC(10,2)
 );
