@@ -10,12 +10,12 @@ const SETTINGS_PATHS = [
   '/company-settings',
 ];
 
-function SettingsDropdown() {
+function NavDropdown({ label, items, paths }) {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
 
-  const isActive = SETTINGS_PATHS.some(
+  const isActive = paths.some(
     (path) => location.pathname === path || location.pathname.startsWith(`${path}/`)
   );
 
@@ -33,13 +33,6 @@ function SettingsDropdown() {
     setOpen(false);
   }, [location.pathname]);
 
-  const items = [
-    { to: '/admin/job-sites', label: 'Job Sites' },
-    { to: '/admin/classifications', label: 'Classifications' },
-    { to: '/admin/pay-rates', label: 'Pay Rates' },
-    { to: '/company-settings', label: 'Company Settings' },
-  ];
-
   return (
     <div ref={rootRef} className="nav-dropdown">
       <button
@@ -49,7 +42,7 @@ function SettingsDropdown() {
         aria-expanded={open}
         aria-haspopup="menu"
       >
-        Company Settings <span className="nav-link__caret" aria-hidden="true">▾</span>
+        {label} <span className="nav-link__caret" aria-hidden="true">▾</span>
       </button>
       {open && (
         <div role="menu" className="nav-dropdown__menu">
@@ -71,6 +64,21 @@ function SettingsDropdown() {
         </div>
       )}
     </div>
+  );
+}
+
+function SettingsDropdown() {
+  return (
+    <NavDropdown
+      label="Company Settings"
+      paths={SETTINGS_PATHS}
+      items={[
+        { to: '/admin/job-sites', label: 'Job Sites' },
+        { to: '/admin/classifications', label: 'Classifications' },
+        { to: '/admin/pay-rates', label: 'Pay Rates' },
+        { to: '/company-settings', label: 'Company Settings' },
+      ]}
+    />
   );
 }
 
@@ -99,6 +107,7 @@ function AppLayout({ children }) {
           {isAdmin && (
             <>
               <NavLink to="/certified-payroll">Certified Payroll</NavLink>
+              <NavLink to="/manage-bills">AR/AP</NavLink>
               <SettingsDropdown />
               <NavLink to="/admin/users">Manage Users</NavLink>
             </>

@@ -13,6 +13,7 @@ import JobSitesPage from './pages/JobSitesPage';
 import ClassificationsPage from './pages/ClassificationsPage';
 import PayRatesPage from './pages/PayRatesPage';
 import CertifiedPayrollPage from './pages/CertifiedPayrollPage';
+import ManageBillsPage from './pages/ManageBillsPage';
 
 function HomeRedirect() {
   const { token, isLoading } = useAuth();
@@ -68,6 +69,14 @@ export default function App() {
         element={
           <ProtectedRoute requireAdmin>
             <PayrollPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/manage-bills"
+        element={
+          <ProtectedRoute requireAdmin>
+            <ManageBillsPage />
           </ProtectedRoute>
         }
       />
