@@ -199,7 +199,8 @@ async function getCompanyChecksForHistory({ forceRefresh = false, payPeriodId = 
     periodStatus = known.status || null;
   }
 
-  const key = String(payPeriodId);
+  // Include companyId so multi-company runs never share a single global cache slot.
+  const key = `${cid || 'unknown'}:${String(payPeriodId)}`;
   if (!forceRefresh && cachedChecksKey === key && cachedChecks) {
     return {
       checks: cachedChecks,
@@ -257,13 +258,69 @@ function extractPayPeriodFromCheck(check) {
   };
 }
 
+function extractCheckId(check) {
+  if (!check || typeof check !== 'object') return 'unknown';
+  const id = check.paycheckId ?? check.checkId ?? check.id;
+  return id != null && id !== '' ? String(id) : 'unknown';
+}
+
+/**
+ * Resolve the Paychex worker id on a check payload.
+ * Prefer primary `workerId`; log whenever a fallback field is used so silent
+ * cross-assignment via employeeId / nested worker objects is observable.
+ */
 function extractWorkerIdFromCheck(check) {
-  return (
-    check.workerId ||
-    check.paychexWorkerId ||
-    check.employeeId ||
-    check.worker?.workerId
-  );
+  if (!check || typeof check !== 'object') return undefined;
+
+  if (check.workerId != null && check.workerId !== '') {
+    return check.workerId;
+  }
+
+  const checkId = extractCheckId(check);
+  const fallbacks = [
+    ['paychexWorkerId', check.paychexWorkerId],
+    ['employeeId', check.employeeId],
+    ['worker.workerId', check.worker?.workerId],
+  ];
+
+  for (const [field, value] of fallbacks) {
+    if (value != null && value !== '') {
+      console.warn(
+        `[paychexCompanyChecks] check.workerId absent — using fallback field "${field}"` +
+          ` (value=${value}) for check ${checkId}`
+      );
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Hard gate before persisting WH-347 tax fields: primary workerId must be
+ * present and must match workers.paychex_worker_id exactly (string compare).
+ * Fallback-only resolutions must not authorize writing deduction amounts.
+ */
+function verifyCheckBelongsToWorker(check, expectedPaychexWorkerId) {
+  if (!check || expectedPaychexWorkerId == null || expectedPaychexWorkerId === '') {
+    return { ok: false, reason: 'missing_check_or_worker' };
+  }
+
+  const expected = String(expectedPaychexWorkerId);
+  const primary = check.workerId;
+  if (primary == null || primary === '') {
+    return { ok: false, reason: 'missing_primary_workerId' };
+  }
+  if (String(primary) !== expected) {
+    return { ok: false, reason: 'primary_workerId_mismatch' };
+  }
+
+  const resolved = extractWorkerIdFromCheck(check);
+  if (resolved == null || String(resolved) !== expected) {
+    return { ok: false, reason: 'resolved_workerId_mismatch' };
+  }
+
+  return { ok: true };
 }
 
 function getCheckGrossAmount(check) {
@@ -271,6 +328,10 @@ function getCheckGrossAmount(check) {
   if (check.grossPay != null) return toNumber(check.grossPay);
   const earnings = check.earnings || check.payComponents || [];
   return earnings.reduce((sum, item) => sum + toNumber(item.amount ?? item.value ?? item.payAmount), 0);
+}
+
+function materiallyDifferentGross(a, b) {
+  return Math.abs(getCheckGrossAmount(a) - getCheckGrossAmount(b)) > 0.01;
 }
 
 /**
@@ -328,7 +389,22 @@ function indexChecksByWorker(checks) {
       continue;
     }
 
-    if (getCheckGrossAmount(check) > getCheckGrossAmount(map[key])) {
+    const existing = map[key];
+    const existingId = extractCheckId(existing);
+    const incomingId = extractCheckId(check);
+    const keepIncoming = getCheckGrossAmount(check) > getCheckGrossAmount(existing);
+
+    if (existingId !== incomingId && materiallyDifferentGross(existing, check)) {
+      const winnerId = keepIncoming ? incomingId : existingId;
+      const loserId = keepIncoming ? existingId : incomingId;
+      console.warn(
+        `[paychexCompanyChecks] Ambiguous worker match — check ${winnerId}` +
+          ` overwrote check ${loserId} for workerId ${key}`
+      );
+    }
+
+    // Keep highest-gross tiebreak (unchanged behavior); warning is observability only.
+    if (keepIncoming) {
       map[key] = check;
     }
   }
@@ -347,9 +423,55 @@ function filterChecksForPayPeriod(checks, startDate, endDate) {
   });
 }
 
+function taxLabel(tax) {
+  return String(tax?.taxType ?? tax?.type ?? tax?.name ?? tax?.description ?? '');
+}
+
+/**
+ * Prefer componentType / paidBy when Paychex sends them; otherwise infer from label.
+ * Display-name payloads often omit componentType and include both employee and
+ * employer lines (e.g. "Employer Social Security Tax", FUTA/SUTA).
+ */
 function isEmployeeTaxEntry(tax) {
-  const componentType = String(tax.componentType ?? tax.type ?? '').toUpperCase();
-  return !['EMPLOYER', 'INFORMATIONAL'].includes(componentType);
+  const paidBy = String(tax?.paidBy ?? '').toUpperCase();
+  if (paidBy.includes('EMPLOYER')) return false;
+  if (paidBy.includes('EMPLOYEE')) return true;
+
+  const componentType = String(tax?.componentType ?? '').toUpperCase();
+  if (componentType === 'EMPLOYER' || componentType === 'INFORMATIONAL') {
+    return false;
+  }
+  // Some payloads put EMPLOYEE/EMPLOYER in `type` instead of componentType.
+  const typeField = String(tax?.type ?? '').toUpperCase();
+  if (typeField === 'EMPLOYER' || typeField === 'INFORMATIONAL') {
+    return false;
+  }
+  if (typeField === 'EMPLOYEE') {
+    return true;
+  }
+
+  const label = taxLabel(tax);
+  if (/\bEMPLOYER\b/i.test(label)) return false;
+  // FUTA / SUTA / state UI are employer-paid — never employee withholding.
+  if (/UNEMPLOYMENT|\bFUTA\b|\bSUTA\b/i.test(label)) return false;
+  return true;
+}
+
+function isFederalIncomeTaxEntry(tax) {
+  const label = taxLabel(tax);
+  if (!label) return false;
+  // Must not treat FUTA ("Federal Unemployment Insurance") as FIT.
+  if (/UNEMPLOYMENT|\bFUTA\b|\bEMPLOYER\b/i.test(label)) return false;
+  return /FEDERAL[_\s-]*INCOME|^FIT$|FEDERAL_INCOME|FED_INCOME|\bFEDERAL\b.*\bINCOME\b/i.test(
+    label
+  );
+}
+
+function isEmployeeFicaTaxEntry(tax) {
+  const label = taxLabel(tax);
+  if (!label) return false;
+  if (/\bEMPLOYER\b/i.test(label)) return false;
+  return /SOCIAL|MEDICARE/i.test(label);
 }
 
 function parseCheckForSupplement(check, componentMap = new Map()) {
@@ -364,13 +486,13 @@ function parseCheckForSupplement(check, componentMap = new Map()) {
   );
 
   const federalWithholding = taxes
-    .filter((tax) => /FEDERAL|FIT|FEDERAL_INCOME/i.test(tax.taxType ?? tax.type ?? tax.name ?? ''))
+    .filter(isFederalIncomeTaxEntry)
     .reduce((sum, tax) => sum + toNumber(tax.amount ?? tax.value ?? tax.payAmount), 0);
 
   // Existing FICA extraction from Paychex tax lines — formula unchanged.
   // WH-347 supplements recompute FICA as 7.65% of this taxable grossPay.
   const fica = taxes
-    .filter((tax) => /SOCIAL|MEDICARE/i.test(tax.taxType ?? tax.type ?? tax.name ?? ''))
+    .filter(isEmployeeFicaTaxEntry)
     .reduce((sum, tax) => sum + toNumber(tax.amount ?? tax.value ?? tax.payAmount), 0);
 
   const otherDeductions = (check.deductions ?? check.benefitDeductions ?? [])
@@ -385,8 +507,8 @@ function parseCheckForSupplement(check, componentMap = new Map()) {
     .filter(Boolean);
 
   for (const tax of taxes) {
-    const taxType = String(tax.taxType ?? tax.type ?? tax.name ?? '');
-    if (/STATE/i.test(taxType)) {
+    const label = taxLabel(tax);
+    if (/STATE/i.test(label) && !/UNEMPLOYMENT|\bFUTA\b|\bSUTA\b/i.test(label)) {
       const amount = toNumber(tax.amount ?? tax.value ?? tax.payAmount);
       if (amount > 0) {
         otherDeductions.push({ label: 'State Tax', amount });
@@ -538,12 +660,17 @@ module.exports = {
   fetchWorkerChecksByPayPeriodId,
   getCompanyChecksForHistory,
   extractPayPeriodFromCheck,
+  extractCheckId,
   extractWorkerIdFromCheck,
+  verifyCheckBelongsToWorker,
   getCheckGrossAmount,
   splitCheckEarnings,
   isReimbursementComponent,
   indexChecksByWorker,
   filterChecksForPayPeriod,
+  isEmployeeTaxEntry,
+  isFederalIncomeTaxEntry,
+  isEmployeeFicaTaxEntry,
   parseCheckForSupplement,
   reconstructPayPeriodsFromChecks,
   buildPeriodShape,

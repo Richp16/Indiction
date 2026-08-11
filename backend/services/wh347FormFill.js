@@ -509,9 +509,16 @@ function fillWorkerSlot(ctx, slot, worker, entryNumber, supplementsByWorker, wee
       ? Number(worker.ot_pay_rate)
       : stRate * 1.5;
   const grossThisJob = totalSt * stRate + totalOt * otRate;
-  const withholding = Number(supplement.deduction_withholding || 0);
-  const fica = Number(supplement.deduction_fica || 0);
-  const other = Number(supplement.deduction_other || 0);
+  const withholdingRaw = supplement.deduction_withholding;
+  const ficaRaw = supplement.deduction_fica;
+  const otherRaw = supplement.deduction_other;
+  const hasDeductionData =
+    (withholdingRaw != null && withholdingRaw !== '') ||
+    (ficaRaw != null && ficaRaw !== '') ||
+    (otherRaw != null && otherRaw !== '');
+  const withholding = Number(withholdingRaw || 0);
+  const fica = Number(ficaRaw || 0);
+  const other = Number(otherRaw || 0);
   const totalDeductions = withholding + fica + other;
 
   setText(ctx, fields.stRate, stRate ? moneyOrHours(stRate) : '', narrowMoney);
@@ -521,18 +528,24 @@ function fillWorkerSlot(ctx, slot, worker, entryNumber, supplementsByWorker, wee
   setText(ctx, fields.fringeInLieu, supplement.fringe_paid_in_lieu, narrowMoney);
   setText(ctx, fields.grossAmt, moneyOrHours(grossThisJob), narrowMoney);
   setText(ctx, fields.grossAllWork, supplement.gross_earned_all_work, narrowMoney);
-  setText(ctx, fields.taxWithholding, supplement.deduction_withholding, narrowMoney);
-  setText(ctx, fields.fica, supplement.deduction_fica, narrowMoney);
+  setText(ctx, fields.taxWithholding, withholdingRaw, narrowMoney);
+  setText(ctx, fields.fica, ficaRaw, narrowMoney);
   // Prefer numeric other deduction; if only a label is present, fit the descriptive text.
   setText(
     ctx,
     fields.otherDeductions,
-    supplement.deduction_other != null && supplement.deduction_other !== ''
-      ? supplement.deduction_other
+    otherRaw != null && otherRaw !== ''
+      ? otherRaw
       : supplement.deduction_other_label,
     narrowMoney
   );
-  setText(ctx, fields.totalDeductions, moneyOrHours(totalDeductions), narrowMoney);
+  // When tax fields are unavailable (null), leave total blank — do not render a false "0.00".
+  setText(
+    ctx,
+    fields.totalDeductions,
+    hasDeductionData ? moneyOrHours(totalDeductions) : '',
+    narrowMoney
+  );
   setText(ctx, fields.netPay, supplement.net_pay, narrowMoney);
 }
 

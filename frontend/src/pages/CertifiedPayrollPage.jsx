@@ -715,6 +715,14 @@ export default function CertifiedPayrollPage() {
                     worker(s) have multiple checks in this pay period (highest gross used).
                   </div>
                 )}
+                {(reconciliationWarnings.taxDataUnavailableWorkers || []).length > 0 && (
+                  <div className="alert alert-warning" style={warningBannerStyle}>
+                    {(reconciliationWarnings.taxDataUnavailableWorkers || [])
+                      .map((w) => w.workerName || w.paychexWorkerId || w.workerId)
+                      .join(', ')}
+                    : ⚠ Tax data unavailable — verify manually
+                  </div>
+                )}
               </div>
             )}
 
@@ -796,6 +804,9 @@ export default function CertifiedPayrollPage() {
                 {needsManualWithholding && (
                   <span style={estimatedBadgeStyle}>Enter federal withholding manually</span>
                 )}
+                {suppRows.some((r) => r.taxDataUnavailable) && (
+                  <span style={estimatedBadgeStyle}>⚠ Tax data unavailable — verify manually</span>
+                )}
                 {savedWorkerId && <span style={savedStyle}>Saved</span>}
               </h2>
               <p style={{ marginTop: 0, color: '#64748b', fontSize: 13 }}>
@@ -828,7 +839,14 @@ export default function CertifiedPayrollPage() {
                     )}
                     {suppRows.map((row) => (
                       <tr key={row.worker_id}>
-                        <td style={workerNameCellStyle}>{row.worker_name}</td>
+                        <td style={workerNameCellStyle}>
+                          {row.worker_name}
+                          {row.taxDataUnavailable ? (
+                            <div style={{ color: '#92400e', fontSize: 11, marginTop: 2 }}>
+                              ⚠ Tax data unavailable — verify manually
+                            </div>
+                          ) : null}
+                        </td>
                         <td
                           style={tdStyle}
                           title={
@@ -862,8 +880,13 @@ export default function CertifiedPayrollPage() {
                                 className="supplement-input"
                                 value={row[field] ?? ''}
                                 placeholder={
-                                  field === 'deduction_withholding' || field === 'net_pay'
-                                    ? '—'
+                                  field === 'deduction_withholding' ||
+                                  field === 'deduction_fica' ||
+                                  field === 'deduction_other' ||
+                                  field === 'net_pay'
+                                    ? row.taxDataUnavailable
+                                      ? 'Unavailable'
+                                      : '—'
                                     : undefined
                                 }
                                 onChange={(e) => {

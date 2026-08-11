@@ -20,11 +20,17 @@ function normalizeTaxType(value) {
 }
 
 function isInformationalComponent(item) {
+  const paidBy = String(item?.paidBy || '').toUpperCase();
+  if (paidBy.includes('EMPLOYER')) return true;
   const type = normalizeTaxType(item?.type || item?.componentType || item?.classificationType);
-  const name = String(item?.name || item?.description || '').toLowerCase();
+  const name = String(item?.name || item?.description || item?.taxType || '').toLowerCase();
   return (
     type.includes('INFORMATIONAL') ||
     type.includes('EMPLOYER') ||
+    name.includes('employer') ||
+    name.includes('unemployment') ||
+    name.includes('futa') ||
+    name.includes('suta') ||
     name.includes('employer match') ||
     name.includes('employer contribution')
   );
@@ -56,10 +62,14 @@ function getEarningsTotal(check) {
 
 function classifyTax(item) {
   const taxType = normalizeTaxType(item.taxType || item.name || item.description);
+  if (/UNEMPLOYMENT|FUTA|SUTA/.test(taxType) || taxType.includes('EMPLOYER')) {
+    return 'employer_skip';
+  }
   if (
     taxType.includes('FEDERAL_INCOME') ||
     taxType === 'FIT' ||
-    taxType.includes('FED_INCOME')
+    taxType.includes('FED_INCOME') ||
+    (taxType.includes('FEDERAL') && taxType.includes('INCOME'))
   ) {
     return 'federal';
   }
@@ -69,7 +79,7 @@ function classifyTax(item) {
   if (taxType.includes('MEDICARE') || taxType === 'MED') {
     return 'medicare';
   }
-  if (taxType.includes('STATE')) {
+  if (taxType.includes('STATE') && !taxType.includes('UNEMPLOYMENT')) {
     return 'state';
   }
   return 'other';
@@ -101,6 +111,7 @@ function parseCheck(check) {
     const amount = toNumber(tax.amount ?? tax.value ?? tax.payAmount);
     if (amount <= 0) continue;
     const bucket = classifyTax(tax);
+    if (bucket === 'employer_skip') continue;
     if (bucket === 'federal') federalWithholding += amount;
     else if (bucket === 'ss' || bucket === 'medicare') fica += amount;
     else if (bucket === 'state') {

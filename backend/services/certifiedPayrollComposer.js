@@ -11,14 +11,18 @@ const {
   getCompanyChecksForHistory,
   parseCheckForSupplement,
   extractWorkerIdFromCheck,
+  extractCheckId,
   getCheckGrossAmount,
   indexChecksByWorker,
+  verifyCheckBelongsToWorker,
 } = require('./paychexCompanyChecks');
 const { getPayComponentNameMap } = require('./paychexPayComponents');
 const { estimateDeductions } = require('./payrollTaxEstimate');
 
 /**
  * Index checks by Paychex workerId; track workers with multiple checks.
+ * Surfaces ambiguous overwrite when distinct paycheck ids with different gross
+ * resolve to the same workerId key (same higher-gross tiebreak as indexChecksByWorker).
  */
 function indexChecksByWorkerDetailed(checks) {
   const lists = {};
@@ -32,10 +36,36 @@ function indexChecksByWorkerDetailed(checks) {
 
   const checksByWorker = {};
   const workersWithMultipleChecksInSamePayPeriod = [];
+  const ambiguousWorkerIds = [];
 
   for (const [workerId, list] of Object.entries(lists)) {
     if (list.length > 1) {
       workersWithMultipleChecksInSamePayPeriod.push(workerId);
+
+      // Detect distinct paycheck ids with materially different gross (collision / multi-check).
+      for (let i = 1; i < list.length; i += 1) {
+        const existing = list[0];
+        const incoming = list[i];
+        const existingId = extractCheckId(existing);
+        const incomingId = extractCheckId(incoming);
+        if (
+          existingId !== incomingId &&
+          Math.abs(getCheckGrossAmount(existing) - getCheckGrossAmount(incoming)) > 0.01
+        ) {
+          const winner = list.reduce((best, check) =>
+            getCheckGrossAmount(check) > getCheckGrossAmount(best) ? check : best
+          );
+          const loser = list.find((c) => extractCheckId(c) !== extractCheckId(winner)) || existing;
+          console.warn(
+            `[paychexCompanyChecks] Ambiguous worker match — check ${extractCheckId(winner)}` +
+              ` overwrote check ${extractCheckId(loser)} for workerId ${workerId}`
+          );
+          if (!ambiguousWorkerIds.includes(workerId)) {
+            ambiguousWorkerIds.push(workerId);
+          }
+          break;
+        }
+      }
     }
     checksByWorker[workerId] = list.reduce((best, check) =>
       getCheckGrossAmount(check) > getCheckGrossAmount(best) ? check : best
@@ -45,6 +75,7 @@ function indexChecksByWorkerDetailed(checks) {
   return {
     checksByWorker,
     workersWithMultipleChecksInSamePayPeriod,
+    ambiguousWorkerIds,
     checkCountByWorker: Object.fromEntries(
       Object.entries(lists).map(([id, list]) => [id, list.length])
     ),
@@ -111,6 +142,7 @@ function buildReconciliationWarnings({
   workersWithMultipleChecksInSamePayPeriod = [],
   checksFetchMeta = null,
   componentMap = new Map(),
+  taxDataUnavailableWorkers = [],
 }) {
   const hourWorkerPaychexIds = new Set(
     workers.map((w) => w.paychexWorkerId).filter(Boolean).map(String)
@@ -165,6 +197,7 @@ function buildReconciliationWarnings({
     workersWithMultipleChecksInSamePayPeriod: workersWithMultipleChecksInSamePayPeriod.map(
       (paychexWorkerId) => ({ paychexWorkerId })
     ),
+    taxDataUnavailableWorkers,
     checksUnavailable,
   };
 }
@@ -203,6 +236,7 @@ module.exports = {
   getCompanyChecksForHistory,
   getPayComponentNameMap,
   estimateDeductions,
+  verifyCheckBelongsToWorker,
   envCompanyId,
   isPaychexPayPeriodId,
 };

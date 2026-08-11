@@ -3,9 +3,11 @@ const { fetchPaychexPayPeriods } = require('./paychexPayPeriods');
 const {
   getCompanyChecksForHistory,
   indexChecksByWorker,
-  parseCheckForSupplement,
   parsePayPeriodId,
   clearCompanyChecksCache,
+  extractWorkerIdFromCheck,
+  extractCheckId,
+  verifyCheckBelongsToWorker,
 } = require('./paychexCompanyChecks');
 const {
   indexChecksByWorkerDetailed,
@@ -290,6 +292,81 @@ function buildSupplementFromPaychex({ checkData, site, worker, mapped = null }) 
   };
 }
 
+/**
+ * Persist a row with tax fields cleared when Paychex check ↔ worker verification fails.
+ * Gross may still come from hours so the form is usable; tax cells stay blank/flagged.
+ */
+function buildSupplementTaxDataUnavailable({ site, worker, grossAllWork = null, reason = null }) {
+  return {
+    worker_id: worker.workerId,
+    worker_name: worker.workerName,
+    paychex_worker_number: worker.paychexWorkerNumber,
+    wage_determination_no: site?.wage_determination_no || '',
+    fringe_benefit_credit: 0,
+    fringe_paid_in_lieu: 0,
+    gross_earned_all_work: grossAllWork,
+    deduction_withholding: null,
+    deduction_fica: null,
+    deduction_other: null,
+    deduction_other_label: null,
+    net_pay: null,
+    is_estimated: false,
+    needs_manual_withholding: true,
+    tax_data_unavailable: true,
+    tax_data_unavailable_reason: reason || 'check_worker_mismatch',
+    source: 'unavailable',
+    paycheck_id: null,
+    paychex_check_worker_id: null,
+    total_deductions: null,
+  };
+}
+
+/**
+ * Verify a raw check belongs to the local worker's paychex_worker_id before
+ * any deduction amounts are written to wh347_supplements.
+ */
+function verifiedSupplementFromCheck({ rawCheck, site, worker, componentMap }) {
+  const expectedId = worker.paychexWorkerId || worker.paychex_worker_id;
+  const verification = verifyCheckBelongsToWorker(rawCheck, expectedId);
+  if (!verification.ok) {
+    const checkId = extractCheckId(rawCheck);
+    const resolved = rawCheck ? extractWorkerIdFromCheck(rawCheck) : null;
+    console.warn(
+      `[certifiedPayroll] Refusing tax write — check ${checkId} resolved workerId` +
+        ` ${resolved ?? 'null'} does not verify against paychex_worker_id ${expectedId}` +
+        ` (reason=${verification.reason})`
+    );
+    return {
+      ok: false,
+      reason: verification.reason,
+      row: null,
+      mapped: null,
+    };
+  }
+
+  const mapped = mapPaychexCheckToSupplementFields(rawCheck, componentMap);
+  if (!mapped) {
+    return {
+      ok: false,
+      reason: 'unparseable_check',
+      row: null,
+      mapped: null,
+    };
+  }
+
+  return {
+    ok: true,
+    reason: null,
+    mapped,
+    row: buildSupplementFromPaychex({
+      checkData: mapped.parsed,
+      site,
+      worker,
+      mapped,
+    }),
+  };
+}
+
 function buildSupplementEstimate({ grossAllWork, site, worker }) {
   const estimate = estimateDeductions(grossAllWork);
   const other = mergeOtherDeductions(estimate.otherDeductions);
@@ -386,8 +463,9 @@ async function upsertBiweeklySupplementRows({
 function formatSupplementResponse(row) {
   const withholdingBlank =
     row.deduction_withholding == null || row.deduction_withholding === '';
+  const taxDataUnavailable = Boolean(row.tax_data_unavailable);
   const needsManualWithholding =
-    Boolean(row.needs_manual_withholding) || withholdingBlank;
+    Boolean(row.needs_manual_withholding) || withholdingBlank || taxDataUnavailable;
 
   return {
     worker_id: row.worker_id,
@@ -417,6 +495,8 @@ function formatSupplementResponse(row) {
       row.net_pay != null && row.net_pay !== '' ? roundMoney(row.net_pay).toFixed(2) : '',
     isEstimated: false,
     needsManualWithholding,
+    taxDataUnavailable,
+    taxDataUnavailableReason: row.tax_data_unavailable_reason || null,
     source: row.source || (row.is_estimated ? 'estimated' : 'saved'),
     paycheckId: row.paycheck_id || row.paycheckId || null,
     paychexCheckWorkerId: row.paychex_check_worker_id || null,
@@ -693,6 +773,7 @@ async function buildSupplementRows({
   const rows = [];
   let hasEstimated = false;
   let needsManualWithholding = false;
+  const taxDataUnavailableWorkers = [];
   const debugWorkers = [];
 
   const checksPayPeriodId = resolvedPaychexPayPeriodId || payPeriodId;
@@ -710,15 +791,26 @@ async function buildSupplementRows({
   for (const worker of workers) {
     const existing = existingByWorker.get(worker.workerId);
     let mapped = null;
+    let taxUnavailableReason = null;
 
     if (worker.paychexWorkerId) {
       const rawCheck = checksByWorker[String(worker.paychexWorkerId)] || null;
       if (rawCheck) {
-        mapped = mapPaychexCheckToSupplementFields(rawCheck, componentMap);
+        const verified = verifiedSupplementFromCheck({
+          rawCheck,
+          site,
+          worker,
+          componentMap,
+        });
+        if (verified.ok) {
+          mapped = verified.mapped;
+        } else {
+          taxUnavailableReason = verified.reason;
+        }
       }
     }
 
-    // Money: prefer Paychex check when present. Hours stay on daily_time_entries only.
+    // Money: prefer verified Paychex check when present. Hours stay on daily_time_entries only.
     if (mapped) {
       const supplementRow = buildSupplementFromPaychex({
         checkData: mapped.parsed,
@@ -756,6 +848,60 @@ async function buildSupplementRows({
         withholding: mapped.withholding,
         fica: mapped.fica,
         netPay: mapped.netPay,
+        needsClassification: worker.needsClassification,
+      });
+      continue;
+    }
+
+    // Check present but failed workerId verification — persist NULL tax fields + flag.
+    if (taxUnavailableReason) {
+      const grossAllWork = calculateBiweeklyGrossThisJob(
+        payPeriodHoursRows,
+        worker.workerId,
+        worker.rate
+      );
+      const supplementRow = buildSupplementTaxDataUnavailable({
+        site,
+        worker,
+        grossAllWork,
+        reason: taxUnavailableReason,
+      });
+      needsManualWithholding = true;
+      taxDataUnavailableWorkers.push({
+        workerId: worker.workerId,
+        paychexWorkerId: worker.paychexWorkerId,
+        workerName: worker.workerName,
+        reason: taxUnavailableReason,
+        message: '⚠ Tax data unavailable — verify manually',
+      });
+
+      const saved = await upsertBiweeklySupplementRows({
+        workerId: worker.workerId,
+        jobSiteId,
+        weekEndingDates: periodWeeks.weekEndingDates,
+        selectedWeekEndingDate: weekEndingDate,
+        row: supplementRow,
+      });
+
+      const formatted = formatSupplementResponse({
+        ...saved,
+        worker_name: worker.workerName,
+        classification: worker.laborClassification,
+        needsClassification: worker.needsClassification,
+        source: 'unavailable',
+        needs_manual_withholding: true,
+        tax_data_unavailable: true,
+        tax_data_unavailable_reason: taxUnavailableReason,
+      });
+      rows.push(formatted);
+      debugWorkers.push({
+        workerId: worker.workerId,
+        workerName: worker.workerName,
+        paychexWorkerId: worker.paychexWorkerId || null,
+        paycheckId: null,
+        source: 'unavailable',
+        taxDataUnavailable: true,
+        reason: taxUnavailableReason,
         needsClassification: worker.needsClassification,
       });
       continue;
@@ -848,6 +994,7 @@ async function buildSupplementRows({
     workersWithMultipleChecksInSamePayPeriod,
     checksFetchMeta,
     componentMap,
+    taxDataUnavailableWorkers,
   });
 
   const debug = {
@@ -913,33 +1060,60 @@ async function fetchAndCacheCheckData({
   const results = [];
   for (const worker of workerResult.rows) {
     const rawCheck = checksByWorker[worker.paychex_worker_id];
-    const checkData = rawCheck ? parseCheckForSupplement(rawCheck, componentMap) : null;
-    if (!checkData) {
+    if (!rawCheck) {
       results.push({ workerId: worker.paychex_worker_id, unavailable: true });
       continue;
     }
 
-    const supplementRow = buildSupplementFromPaychex({
-      checkData,
+    const verified = verifiedSupplementFromCheck({
+      rawCheck,
       site,
       worker: {
         workerId: worker.id,
         workerName: worker.worker_name,
         paychexWorkerNumber: worker.employee_code,
+        paychexWorkerId: worker.paychex_worker_id,
       },
+      componentMap,
     });
+
+    if (!verified.ok) {
+      const unavailableRow = buildSupplementTaxDataUnavailable({
+        site,
+        worker: {
+          workerId: worker.id,
+          workerName: worker.worker_name,
+          paychexWorkerNumber: worker.employee_code,
+        },
+        reason: verified.reason,
+      });
+      await upsertBiweeklySupplementRows({
+        workerId: worker.id,
+        jobSiteId,
+        weekEndingDates: periodWeeks.weekEndingDates,
+        selectedWeekEndingDate: weekEndingDate,
+        row: unavailableRow,
+      });
+      results.push({
+        workerId: worker.paychex_worker_id,
+        unavailable: true,
+        taxDataUnavailable: true,
+        reason: verified.reason,
+      });
+      continue;
+    }
 
     await upsertBiweeklySupplementRows({
       workerId: worker.id,
       jobSiteId,
       weekEndingDates: periodWeeks.weekEndingDates,
       selectedWeekEndingDate: weekEndingDate,
-      row: supplementRow,
+      row: verified.row,
     });
 
     results.push({
       workerId: worker.paychex_worker_id,
-      ...checkData,
+      ...verified.mapped.parsed,
     });
   }
 
@@ -962,6 +1136,8 @@ module.exports = {
   mergeBiweeklySupplementFields,
   buildSupplementEstimate,
   buildSupplementFromPaychex,
+  buildSupplementTaxDataUnavailable,
+  verifiedSupplementFromCheck,
   groupWorkersFromHours,
   toWh347WorkerType,
   computeWh347Fica,
