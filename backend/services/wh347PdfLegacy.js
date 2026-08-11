@@ -48,12 +48,13 @@ async function buildWh347PdfLegacy({
   const black = rgb(0, 0, 0);
 
   const pageCount = Math.max(1, Math.ceil(workers.length / 8));
+  let statementPage = null;
   for (let i = 0; i < pageCount; i += 1) {
     const [page] = await outDoc.copyPages(templateDoc, [0]);
     outDoc.addPage(page);
-    if (i === 0 && templateDoc.getPageCount() > 1) {
+    if (i === pageCount - 1 && templateDoc.getPageCount() > 1) {
       const [statement] = await outDoc.copyPages(templateDoc, [1]);
-      outDoc.addPage(statement);
+      statementPage = statement;
     }
 
     const batch = workers.slice(i * 8, i * 8 + 8);
@@ -155,8 +156,9 @@ async function buildWh347PdfLegacy({
     });
   }
 
-  if (outDoc.getPageCount() > 1) {
-    const statement = outDoc.getPage(outDoc.getPageCount() - 1);
+  if (statementPage) {
+    outDoc.addPage(statementPage);
+    const statement = statementPage;
     statement.drawText(site.name || '', { x: 160, y: 714, size: 7, font, color: black });
     statement.drawText(site.contract_number || site.job_code || '', { x: 355, y: 714, size: 7, font, color: black });
     // CERTIFIED PAYROLL NO. left blank intentionally.

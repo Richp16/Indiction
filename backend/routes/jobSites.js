@@ -5,6 +5,18 @@ const { selectAllJobSites } = require('../db/jobSiteQuery');
 
 const router = express.Router();
 
+function normalizeStartDate(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  const day = String(value).split('T')[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    const error = new Error('start_date must be YYYY-MM-DD');
+    error.statusCode = 400;
+    throw error;
+  }
+  return day;
+}
+
 router.get('/', async (req, res) => {
   try {
     const rows = await selectAllJobSites();
@@ -16,7 +28,14 @@ router.get('/', async (req, res) => {
 
 router.post('/', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {
-    const { name, job_code, address = null, contract_number = null, wage_determination_no = null } = req.body;
+    const {
+      name,
+      job_code,
+      address = null,
+      contract_number = null,
+      wage_determination_no = null,
+      start_date = null,
+    } = req.body;
     if (!name || !String(name).trim()) {
       return res.status(400).json({ message: 'Site Name is required' });
     }
@@ -24,14 +43,29 @@ router.post('/', requireRole('system_admin', 'payroll_admin'), async (req, res) 
       return res.status(400).json({ message: 'Job Code is required' });
     }
 
+    const normalizedStart = normalizeStartDate(start_date);
+
     const result = await query(
-      `INSERT INTO job_sites (name, job_code, address, contract_number, wage_determination_no, is_active)
-       VALUES ($1, $2, $3, $4, $5, true)
-       RETURNING id, name, job_code, address, contract_number, wage_determination_no, certified_payroll_count, is_active`,
-      [String(name).trim(), String(job_code).trim(), address, contract_number, wage_determination_no]
+      `INSERT INTO job_sites (
+         name, job_code, address, contract_number, wage_determination_no, start_date, is_active
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, true)
+       RETURNING id, name, job_code, address, contract_number, wage_determination_no,
+                 start_date::text AS start_date, certified_payroll_count, is_active`,
+      [
+        String(name).trim(),
+        String(job_code).trim(),
+        address,
+        contract_number,
+        wage_determination_no,
+        normalizedStart,
+      ]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(400).json({ message: error.message });
+    }
     if (error.code === '23505') {
       return res.status(409).json({ message: 'Job code already exists' });
     }
@@ -41,7 +75,8 @@ router.post('/', requireRole('system_admin', 'payroll_admin'), async (req, res) 
 
 router.patch('/:id', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {
-    const { name, job_code, address, contract_number, wage_determination_no, is_active } = req.body;
+    const { name, job_code, address, contract_number, wage_determination_no, start_date, is_active } =
+      req.body;
     const fields = [];
     const values = [];
 
@@ -65,6 +100,10 @@ router.patch('/:id', requireRole('system_admin', 'payroll_admin'), async (req, r
       values.push(wage_determination_no);
       fields.push(`wage_determination_no = $${values.length}`);
     }
+    if (start_date !== undefined) {
+      values.push(normalizeStartDate(start_date));
+      fields.push(`start_date = $${values.length}`);
+    }
     if (is_active !== undefined) {
       values.push(Boolean(is_active));
       fields.push(`is_active = $${values.length}`);
@@ -79,7 +118,8 @@ router.patch('/:id', requireRole('system_admin', 'payroll_admin'), async (req, r
       `UPDATE job_sites
        SET ${fields.join(', ')}
        WHERE id = $${values.length}
-       RETURNING id, name, job_code, address, contract_number, wage_determination_no, certified_payroll_count, is_active`,
+       RETURNING id, name, job_code, address, contract_number, wage_determination_no,
+                 start_date::text AS start_date, certified_payroll_count, is_active`,
       values
     );
 
@@ -88,6 +128,9 @@ router.patch('/:id', requireRole('system_admin', 'payroll_admin'), async (req, r
     }
     res.json(result.rows[0]);
   } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(400).json({ message: error.message });
+    }
     if (error.code === '23505') {
       return res.status(409).json({ message: 'Job code already exists' });
     }

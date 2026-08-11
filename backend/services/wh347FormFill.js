@@ -68,7 +68,7 @@ function formatLongDate(dateStr) {
 
 /**
  * ISO 8601 week number for a YYYY-MM-DD date (Mon–Sun weeks; week 1 contains Jan 4).
- * Used for CERTIFIED PAYROLL NO.
+ * Fallback for CERTIFIED PAYROLL NO. when a job has no start_date.
  */
 function getIsoWeekNumber(dateStr) {
   const date = parseIsoDate(dateStr);
@@ -81,6 +81,46 @@ function getIsoWeekNumber(dateStr) {
   firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
   const weekNumber = 1 + Math.round((d - firstThursday) / (7 * 24 * 60 * 60 * 1000));
   return String(weekNumber);
+}
+
+/**
+ * Week number counted from the job site's start_date (inclusive 7-day buckets).
+ * weekEndingDate before start_date or missing start_date → ISO week fallback.
+ *
+ * Example: start_date=2025-05-01, weekEndingDate=2025-06-20 → 8
+ * (50 days elapsed, floor(50/7)+1 = 8).
+ */
+function getJobSiteWeekNumber(startDate, weekEndingDate) {
+  const start = parseIsoDate(startDate);
+  const end = parseIsoDate(weekEndingDate);
+  if (!start) {
+    return getIsoWeekNumber(weekEndingDate);
+  }
+  if (!end) return '';
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysSinceStart = Math.round((end.getTime() - start.getTime()) / msPerDay);
+  if (daysSinceStart < 0) {
+    console.warn(
+      `[wh347FormFill] weekEndingDate ${weekEndingDate} is before job start_date ${startDate}; ` +
+        'falling back to ISO week number'
+    );
+    return getIsoWeekNumber(weekEndingDate);
+  }
+  return String(Math.floor(daysSinceStart / 7) + 1);
+}
+
+/**
+ * Planned PDF page types for a given worker count.
+ * Always: N payroll page(s), then statement last.
+ */
+function getWh347PageTypes(workerCount) {
+  const n = Math.max(0, Number(workerCount) || 0);
+  const payrollPages = Math.max(1, Math.ceil(n / WORKERS_PER_PAGE) || 1);
+  return [
+    ...Array.from({ length: payrollPages }, () => 'payroll'),
+    'statement',
+  ];
 }
 
 /** Day 1 = weekEnding − 6 … Day 7 = weekEnding (UTC). */
@@ -386,8 +426,11 @@ function fillHeader(ctx, { project, company, weekEndingDate, payrollNumber, isPr
     h.projectNo,
     project?.contract_number || project?.job_code || project?.projectNo
   );
-  // CERTIFIED PAYROLL NO. = ISO week of the week-ending date (fallback to caller override).
-  const resolvedPayrollNumber = getIsoWeekNumber(weekEndingDate) || payrollNumber || '';
+  // CERTIFIED PAYROLL NO. = weeks since job start_date (ISO week fallback).
+  const resolvedPayrollNumber =
+    getJobSiteWeekNumber(project?.start_date || project?.startDate, weekEndingDate) ||
+    payrollNumber ||
+    '';
   setText(ctx, h.certifiedPayrollNo, resolvedPayrollNumber);
   setText(ctx, h.primeContractorName, company?.company_name, { maxFontSize: 8 });
   setText(ctx, h.primeContractorAddress, company?.company_address, { maxFontSize: 7 });
@@ -693,14 +736,18 @@ async function fillWh347Form(params) {
     return Buffer.from(bytes);
   }
 
+  // Overflow: all worker-row pages first, Statement of Compliance last.
   const outDoc = await PDFDocument.create();
+  let statementPage = null;
 
   for (let i = 0; i < pageCount; i += 1) {
     const batch = workers.slice(i * WORKERS_PER_PAGE, i * WORKERS_PER_PAGE + WORKERS_PER_PAGE);
+    const isLastPayrollPage = i === pageCount - 1;
     const { bytes, warnings } = await fillSingleSheet({
       ...params,
       workers: batch,
-      includeStatement: i === 0,
+      // Fill statement fields on the last payroll sheet so they appear once, last.
+      includeStatement: isLastPayrollPage,
       entryNumberOffset: i * WORKERS_PER_PAGE,
     });
     allWarnings.push(...warnings);
@@ -709,10 +756,14 @@ async function fillWh347Form(params) {
     const [payrollPage] = await outDoc.copyPages(sheetDoc, [0]);
     outDoc.addPage(payrollPage);
 
-    if (i === 0 && sheetDoc.getPageCount() > 1) {
-      const [statementPage] = await outDoc.copyPages(sheetDoc, [1]);
-      outDoc.addPage(statementPage);
+    if (isLastPayrollPage && sheetDoc.getPageCount() > 1) {
+      const [stmt] = await outDoc.copyPages(sheetDoc, [1]);
+      statementPage = stmt;
     }
+  }
+
+  if (statementPage) {
+    outDoc.addPage(statementPage);
   }
 
   if (allWarnings.length) {
@@ -728,6 +779,8 @@ module.exports = {
   fitTextToField,
   clearWorkerSlot,
   getIsoWeekNumber,
+  getJobSiteWeekNumber,
+  getWh347PageTypes,
   formatLongDate,
   TEMPLATE_PATH,
   WORKERS_PER_PAGE,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, Fragment } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { apiGet, API_BASE_URL } from '../api/client';
+import { apiGet, apiDelete, API_BASE_URL } from '../api/client';
 import PayPeriodSelector from '../components/PayPeriodSelector';
 import { downloadFile } from '../utils/downloadFile';
 
@@ -87,6 +87,8 @@ export default function MyEntriesPage() {
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState(null);
+  const [deletingId, setDeletingId] = useState('');
+  const [entriesRefresh, setEntriesRefresh] = useState(0);
 
   const selectedPeriod = useMemo(
     () => periods.find((period) => period.id === selectedPayPeriodId) || null,
@@ -94,6 +96,7 @@ export default function MyEntriesPage() {
   );
 
   const groupedEntries = useMemo(() => groupEntriesByDate(entries), [entries]);
+  const colSpan = isAdmin ? 6 : 5;
 
   useEffect(() => {
     async function loadPeriods() {
@@ -124,14 +127,12 @@ export default function MyEntriesPage() {
   }, [token]);
 
   useEffect(() => {
-    if (!token || !selectedPeriod) {
-      setEntries([]);
-      return undefined;
-    }
-
     let cancelled = false;
-
-    async function loadEntries() {
+    (async () => {
+      if (!token || !selectedPeriod) {
+        setEntries([]);
+        return;
+      }
       setLoading(true);
       setError('');
       try {
@@ -141,7 +142,6 @@ export default function MyEntriesPage() {
         });
         const data = await apiGet(`/api/summary/my-entries?${params.toString()}`, token);
         if (cancelled) return;
-
         setEntries(data.entries || []);
         setScope(data.scope || 'own');
       } catch (err) {
@@ -151,14 +151,35 @@ export default function MyEntriesPage() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }
-
-    loadEntries();
+    })();
     return () => {
       cancelled = true;
     };
-  }, [token, selectedPeriod]);
+  }, [token, selectedPeriod, entriesRefresh]);
 
+  async function handleDeleteEntry(entry) {
+    if (!isAdmin || !entry?.id) return;
+    const worker = formatWorkerName(entry);
+    const dateLabel = formatDateHeading(entry.entry_date);
+    if (
+      !window.confirm(
+        `Delete this entry for ${worker} on ${dateLabel}? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setDeletingId(entry.id);
+    setError('');
+    try {
+      await apiDelete(`/api/entries/${entry.id}`, token);
+      setEntries((prev) => prev.filter((row) => row.id !== entry.id));
+    } catch (err) {
+      setError(err.message || 'Failed to delete entry');
+      setEntriesRefresh((n) => n + 1);
+    } finally {
+      setDeletingId('');
+    }
+  }
   async function handleDownloadCsv() {
     if (!selectedPayPeriodId || downloading) return;
     setDownloading(true);
@@ -252,13 +273,14 @@ export default function MyEntriesPage() {
                 <th>Pay Code</th>
                 <th className="text-right">Hours</th>
                 <th className="text-right">Reimbursement</th>
+                {isAdmin ? <th className="text-right">Actions</th> : null}
               </tr>
             </thead>
             <tbody>
               {groupedEntries.map((group) => (
                 <Fragment key={`date-${group.date}`}>
                   <tr className="entries-date-group">
-                    <td colSpan={5}>{formatDateHeading(group.date)}</td>
+                    <td colSpan={colSpan}>{formatDateHeading(group.date)}</td>
                   </tr>
                   {group.entries.map((entry) => {
                     const hours = Number(entry.hours);
@@ -286,6 +308,18 @@ export default function MyEntriesPage() {
                           {formatReimbValue(entry)}
                           {isCorrection && reimb < 0 ? ' (correction)' : ''}
                         </td>
+                        {isAdmin ? (
+                          <td className="text-right">
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              disabled={deletingId === entry.id}
+                              onClick={() => handleDeleteEntry(entry)}
+                            >
+                              {deletingId === entry.id ? 'Deleting…' : 'Delete'}
+                            </button>
+                          </td>
+                        ) : null}
                       </tr>
                     );
                   })}

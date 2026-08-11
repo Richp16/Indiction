@@ -8,7 +8,13 @@ const emptyForm = {
   address: '',
   contract_number: '',
   wage_determination_no: '',
+  start_date: '',
 };
+
+function toDateInputValue(value) {
+  if (!value) return '';
+  return String(value).split('T')[0];
+}
 
 export default function JobSitesPage() {
   const { token } = useAuth();
@@ -28,14 +34,28 @@ export default function JobSitesPage() {
 
   async function saveNew() {
     setError('');
-    await apiPost('/api/job-sites', form, token);
+    await apiPost(
+      '/api/job-sites',
+      {
+        ...form,
+        start_date: form.start_date || null,
+      },
+      token
+    );
     setForm(emptyForm);
     await load();
   }
 
   async function saveEdit() {
     setError('');
-    await apiPatch(`/api/job-sites/${editing.id}`, editing, token);
+    await apiPatch(
+      `/api/job-sites/${editing.id}`,
+      {
+        ...editing,
+        start_date: editing.start_date || null,
+      },
+      token
+    );
     setEditing(null);
     await load();
   }
@@ -58,6 +78,14 @@ export default function JobSitesPage() {
         <input placeholder="Address" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
         <input placeholder="Contract Number" value={form.contract_number} onChange={(e) => setForm((f) => ({ ...f, contract_number: e.target.value }))} />
         <input placeholder="Wage Determination No." value={form.wage_determination_no} onChange={(e) => setForm((f) => ({ ...f, wage_determination_no: e.target.value }))} />
+        <label style={{ display: 'grid', gap: 4, fontSize: 13 }}>
+          Job start date (sets certified payroll week numbering)
+          <input
+            type="date"
+            value={form.start_date}
+            onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))}
+          />
+        </label>
         <button type="button" onClick={() => saveNew().catch((err) => setError(err.message))}>Add</button>
       </div>
 
@@ -65,7 +93,14 @@ export default function JobSitesPage() {
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            <th>Name</th><th>Job Code</th><th>Address</th><th>Contract No.</th><th>Wage Det. No.</th><th>Active</th><th>Actions</th>
+            <th>Name</th>
+            <th>Job Code</th>
+            <th>Address</th>
+            <th>Contract No.</th>
+            <th>Wage Det. No.</th>
+            <th>Start Date</th>
+            <th>Active</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -79,10 +114,18 @@ export default function JobSitesPage() {
                 <td><input disabled={!isEditing} value={item.address || ''} onChange={(e) => setEditing((s) => ({ ...s, address: e.target.value }))} /></td>
                 <td><input disabled={!isEditing} value={item.contract_number || ''} onChange={(e) => setEditing((s) => ({ ...s, contract_number: e.target.value }))} /></td>
                 <td><input disabled={!isEditing} value={item.wage_determination_no || ''} onChange={(e) => setEditing((s) => ({ ...s, wage_determination_no: e.target.value }))} /></td>
+                <td>
+                  <input
+                    type="date"
+                    disabled={!isEditing}
+                    value={toDateInputValue(item.start_date)}
+                    onChange={(e) => setEditing((s) => ({ ...s, start_date: e.target.value }))}
+                  />
+                </td>
                 <td><input type="checkbox" disabled={!isEditing} checked={!!item.is_active} onChange={(e) => setEditing((s) => ({ ...s, is_active: e.target.checked }))} /></td>
                 <td>
                   {!isEditing ? (
-                    <button type="button" onClick={() => setEditing({ ...row })}>Edit</button>
+                    <button type="button" onClick={() => setEditing({ ...row, start_date: toDateInputValue(row.start_date) })}>Edit</button>
                   ) : (
                     <>
                       <button type="button" onClick={() => saveEdit().catch((err) => setError(err.message))}>Save</button>

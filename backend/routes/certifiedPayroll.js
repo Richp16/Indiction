@@ -371,6 +371,9 @@ router.post('/export', async (req, res) => {
           contract_number: site.contract_number,
           address: site.address,
           wage_determination_no: pickWageDetermination(site, supplementsByWorker),
+          start_date: site.start_date
+            ? String(site.start_date).split('T')[0]
+            : null,
         },
         company,
         weekEndingDate,

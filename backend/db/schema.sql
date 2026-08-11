@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS job_sites (
   address          TEXT,
   contract_number  VARCHAR(100),
   wage_determination_no VARCHAR(100),
+  start_date       DATE,
   certified_payroll_count INTEGER DEFAULT 0,
   is_active        BOOLEAN DEFAULT true,
   last_synced_at   TIMESTAMPTZ,
