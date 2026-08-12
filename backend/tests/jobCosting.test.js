@@ -209,6 +209,9 @@ describe('jobCosting integration', () => {
     assert.equal(summary.regularEarnings, 200);
     assert.equal(summary.overtimeEarnings, 60);
     assert.equal(summary.totalEarnings, 260);
+    assert.equal(summary.regularHours, 10);
+    assert.equal(summary.overtimeHours, 2);
+    assert.equal(summary.totalHours, 12);
     assert.equal(summary.internalReimbursements, 50);
     assert.equal(summary.paychexRecurringReimbursements, 0);
     assert.equal(summary.totalReimbursements, 50);

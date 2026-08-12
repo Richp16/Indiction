@@ -4,9 +4,23 @@ const API_BASE_URL = import.meta.env.DEV
 
 export { API_BASE_URL };
 
+/** Optional handler for 401 SESSION_EXPIRED / unauthorized responses. */
+let onUnauthorized = null;
+
+export function registerUnauthorizedHandler(fn) {
+  onUnauthorized = typeof fn === 'function' ? fn : null;
+}
+
 async function parseResponse(res) {
   const text = await res.text();
-  const data = text ? JSON.parse(text) : {};
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { message: text };
+    }
+  }
   if (!res.ok) {
     const message =
       data.message ||
@@ -21,6 +35,15 @@ async function parseResponse(res) {
     error.lock = data.lock || null;
     error.editingUser = data.editingUser || data.lock?.editingUser || null;
     error.debug = data.debug || null;
+
+    if (res.status === 401 && typeof onUnauthorized === 'function') {
+      try {
+        onUnauthorized({ code: data.code, message });
+      } catch {
+        // ignore handler errors
+      }
+    }
+
     throw error;
   }
   return data;
@@ -83,6 +106,34 @@ export async function apiPost(path, body, token) {
   return parseResponse(res);
 }
 
+/**
+ * Best-effort unload logout. Prefer sendBeacon; fall back to keepalive fetch.
+ */
+export function sendLogoutBeacon(token) {
+  if (!token) return false;
+  const url = `${API_BASE_URL}/api/auth/logout-beacon`;
+  const body = JSON.stringify({ token });
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      const blob = new Blob([body], { type: 'application/json' });
+      return navigator.sendBeacon(url, blob);
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function apiPostDownload(path, body, token) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
@@ -107,7 +158,17 @@ export async function apiPostDownload(path, body, token) {
         ? data.errors.map((e) => `Row ${e.row + 1}: ${e.reason}`).join('; ')
         : null) ||
       'Download failed';
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = res.status;
+    error.code = data.code;
+    if (res.status === 401 && typeof onUnauthorized === 'function') {
+      try {
+        onUnauthorized({ code: data.code, message });
+      } catch {
+        // ignore
+      }
+    }
+    throw error;
   }
 
   const disposition = res.headers.get('Content-Disposition') || '';

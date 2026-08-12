@@ -3,6 +3,14 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { query } = require('../db');
 const { runAllSyncsGuarded } = require('../services/paychexSyncScheduler');
+const {
+  createSession,
+  touchSession,
+  endSession,
+  markSessionClosing,
+  validateSession,
+  SESSION_IDLE_SECONDS,
+} = require('../services/sessionService');
 
 const router = express.Router();
 
@@ -20,6 +28,28 @@ async function triggerSyncIfStale() {
 
   if (isStale) {
     runAllSyncsGuarded('login').catch(() => {});
+  }
+}
+
+function extractBearerToken(req) {
+  const header = req.headers.authorization;
+  if (header && header.startsWith('Bearer ')) {
+    return header.slice(7);
+  }
+  if (req.body?.token) return String(req.body.token);
+  return null;
+}
+
+function decodeTokenSafe(token) {
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    try {
+      // Allow revoke of expired JWTs on logout-beacon (session may still be open).
+      return jwt.decode(token);
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -43,8 +73,9 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    const session = await createSession(user.id);
     const token = jwt.sign(
-      { userId: user.id, role: user.role },
+      { userId: user.id, role: user.role, sessionId: session.id },
       process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
@@ -57,6 +88,10 @@ router.post('/login', async (req, res) => {
         role: user.role,
         name: user.name || null,
       },
+      session: {
+        id: session.id,
+        idleSeconds: SESSION_IDLE_SECONDS,
+      },
     });
 
     triggerSyncIfStale().catch(() => {});
@@ -65,4 +100,108 @@ router.post('/login', async (req, res) => {
   }
 });
 
+/**
+ * Activity heartbeat for ALL logged-in users (not just edit-lock holders).
+ * Requires a valid (non-stale) session — first stale check happens in middleware
+ * when this route is mounted behind auth. For simplicity this route verifies
+ * the Bearer token itself so it can live on /api/auth before global auth.
+ */
+router.post('/heartbeat', async (req, res) => {
+  try {
+    const token = extractBearerToken(req);
+    if (!token) {
+      return res.status(401).json({
+        code: 'UNAUTHORIZED',
+        message: 'Unauthorized',
+      });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({
+        code: 'SESSION_EXPIRED',
+        message: 'Your session expired — please log in again',
+      });
+    }
+
+    const sessionId = decoded.sessionId;
+    if (!sessionId) {
+      return res.status(401).json({
+        code: 'SESSION_EXPIRED',
+        message: 'Your session expired — please log in again',
+      });
+    }
+
+    const validated = await validateSession(sessionId, decoded.userId);
+    if (!validated.ok) {
+      return res.status(401).json({
+        code: validated.code,
+        message: validated.message,
+      });
+    }
+
+    const touched = await touchSession(sessionId);
+    if (!touched) {
+      return res.status(401).json({
+        code: 'SESSION_EXPIRED',
+        message: 'Your session expired — please log in again',
+      });
+    }
+
+    res.json({
+      ok: true,
+      lastActivityAt: touched.last_activity_at,
+      idleSeconds: SESSION_IDLE_SECONDS,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+/**
+ * Explicit logout (Bearer or body token). Revokes session + releases edit lock.
+ */
+router.post('/logout', async (req, res) => {
+  try {
+    const token = extractBearerToken(req);
+    if (!token) {
+      return res.json({ ok: true, revoked: false });
+    }
+    const decoded = decodeTokenSafe(token);
+    if (!decoded?.sessionId) {
+      return res.json({ ok: true, revoked: false });
+    }
+    const result = await endSession(decoded.sessionId, decoded.userId);
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+/**
+ * Best-effort tab-close logout via sendBeacon.
+ * Accepts JSON body { token } (sendBeacon cannot set Authorization headers).
+ * Marks the session closing (grace for refresh) and releases the edit lock now.
+ */
+router.post('/logout-beacon', async (req, res) => {
+  try {
+    const token = extractBearerToken(req);
+    if (!token) {
+      return res.status(204).end();
+    }
+    const decoded = decodeTokenSafe(token);
+    if (decoded?.sessionId) {
+      await markSessionClosing(decoded.sessionId, decoded.userId);
+    }
+    res.status(204).end();
+  } catch (error) {
+    // Always succeed for beacon callers — do not block unload.
+    console.error('[auth/logout-beacon]', error.message);
+    res.status(204).end();
+  }
+});
+
 module.exports = router;
+module.exports.SESSION_IDLE_SECONDS = SESSION_IDLE_SECONDS;

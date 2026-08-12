@@ -14,6 +14,12 @@ function formatCurrency(value) {
   return currencyFormatter.format(Number.isFinite(amount) ? amount : 0);
 }
 
+function formatHours(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '0';
+  return Number.isInteger(amount) ? String(amount) : String(Math.round(amount * 100) / 100);
+}
+
 function escapeCsv(value) {
   const str = value == null ? '' : String(value);
   if (str.includes(',') || str.includes('"') || str.includes('\n')) {
@@ -62,6 +68,26 @@ function buildJobCostingCsv(rows, summary) {
   // Labeled totals rows (same pattern as Aging AP/AR export).
   lines.push('');
   lines.push(['Totals', '', '', '', '', ''].join(','));
+  lines.push(
+    [
+      'Total Regular Hours',
+      '',
+      '',
+      '',
+      escapeCsv(summary.regularHours),
+      '',
+    ].join(',')
+  );
+  lines.push(
+    [
+      'Total Overtime Hours',
+      '',
+      '',
+      '',
+      escapeCsv(summary.overtimeHours),
+      '',
+    ].join(',')
+  );
   lines.push(
     ['Regular Gross Pay', '', '', '', '', escapeCsv(summary.regularEarnings)].join(',')
   );
@@ -117,6 +143,9 @@ const emptySummary = {
   totalEarnings: 0,
   regularEarnings: 0,
   overtimeEarnings: 0,
+  regularHours: 0,
+  overtimeHours: 0,
+  totalHours: 0,
   totalReimbursements: 0,
   internalReimbursements: 0,
   paychexRecurringReimbursements: 0,
@@ -394,6 +423,22 @@ export default function JobCostingPage() {
                   ))
                 )}
               </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={4} style={tfootLabelStyle}>
+                    Total Regular Hours
+                  </td>
+                  <td style={tfootValueStyle}>{formatHours(summary.regularHours)}</td>
+                  <td style={tdStyle} />
+                </tr>
+                <tr>
+                  <td colSpan={4} style={tfootLabelStyle}>
+                    Total Overtime Hours
+                  </td>
+                  <td style={tfootValueStyle}>{formatHours(summary.overtimeHours)}</td>
+                  <td style={tdStyle} />
+                </tr>
+              </tfoot>
             </table>
           </div>
         </>
@@ -495,4 +540,18 @@ const thStyle = {
 const tdStyle = {
   borderBottom: '1px solid #eee',
   padding: '0.5rem 0.75rem',
+};
+
+const tfootLabelStyle = {
+  ...tdStyle,
+  borderTop: '2px solid #ddd',
+  fontWeight: 700,
+  textAlign: 'right',
+};
+
+const tfootValueStyle = {
+  ...tdStyle,
+  borderTop: '2px solid #ddd',
+  fontWeight: 700,
+  textAlign: 'right',
 };

@@ -244,18 +244,36 @@ async function generateJobCostingRows(payPeriodId, jobSiteId) {
  * so they are 0 when scoped to a job site — same metric keys, site-filtered data.
  */
 async function getJobCostingSummary(payPeriodId, jobSiteId) {
-  const [earnings, reimbursements] = await Promise.all([
+  const [earnings, reimbursements, hoursResult] = await Promise.all([
     getCompanyEarnings(payPeriodId, { jobSiteId }),
     getCompanyReimbursements(payPeriodId, { jobSiteId }),
+    query(
+      `SELECT
+         COALESCE(SUM(CASE
+           WHEN UPPER(te.paychex_component_id::text) IN ('REGULAR', 'HOURLY', 'PTO', 'VACATION', 'SICK')
+           THEN te.hours ELSE 0 END), 0)::float AS regular_hours,
+         COALESCE(SUM(CASE
+           WHEN UPPER(te.paychex_component_id::text) IN ('OT', 'OVERTIME', 'DT', 'DOUBLETIME')
+           THEN te.hours ELSE 0 END), 0)::float AS overtime_hours
+       FROM time_entries te
+       WHERE te.pay_period_id = $1
+         AND te.job_site_id = $2`,
+      [payPeriodId, jobSiteId]
+    ),
   ]);
 
   const totalEarnings = earnings.total;
   const employerLiability = totalEarnings * EMPLOYER_LIABILITY_RATE;
+  const regularHours = Number(hoursResult.rows[0]?.regular_hours) || 0;
+  const overtimeHours = Number(hoursResult.rows[0]?.overtime_hours) || 0;
 
   return {
     totalEarnings,
     regularEarnings: earnings.regular,
     overtimeEarnings: earnings.overtimeTotal,
+    regularHours,
+    overtimeHours,
+    totalHours: regularHours + overtimeHours,
     totalReimbursements: reimbursements.total,
     internalReimbursements: reimbursements.internal,
     paychexRecurringReimbursements: reimbursements.paychexRecurring,
