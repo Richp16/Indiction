@@ -109,11 +109,12 @@ router.get('/analysis', requireRole('system_admin', 'payroll_admin'), async (req
       payPeriodId: req.query.payPeriodId,
     });
 
-    const [rows, totalEarnings, reimbursements] = await Promise.all([
+    const [rows, earnings, reimbursements] = await Promise.all([
       getAggregatedSummary(period.id),
       getCompanyEarnings(period.id),
       getCompanyReimbursements(period.id),
     ]);
+    const totalEarnings = earnings.total;
     const employerLiability = totalEarnings * EMPLOYER_LIABILITY_RATE;
 
     res.json({
@@ -128,6 +129,8 @@ router.get('/analysis', requireRole('system_admin', 'payroll_admin'), async (req
       },
       rows,
       totalEarnings,
+      regularEarnings: earnings.regular,
+      overtimeEarnings: earnings.overtimeTotal,
       totalReimbursements: reimbursements.total,
       internalReimbursements: reimbursements.internal,
       paychexRecurringReimbursements: reimbursements.paychexRecurring,
@@ -266,16 +269,19 @@ router.get('/', requireRole('system_admin', 'payroll_admin'), async (req, res) =
       return res.status(400).json({ message: 'payPeriodId is required' });
     }
 
-    const [rows, totalEarnings, reimbursements] = await Promise.all([
+    const [rows, earnings, reimbursements] = await Promise.all([
       getAggregatedSummary(payPeriodId),
       getCompanyEarnings(payPeriodId),
       getCompanyReimbursements(payPeriodId),
     ]);
+    const totalEarnings = earnings.total;
     const employerLiability = totalEarnings * EMPLOYER_LIABILITY_RATE;
 
     res.json({
       rows,
       totalEarnings,
+      regularEarnings: earnings.regular,
+      overtimeEarnings: earnings.overtimeTotal,
       totalReimbursements: reimbursements.total,
       internalReimbursements: reimbursements.internal,
       paychexRecurringReimbursements: reimbursements.paychexRecurring,

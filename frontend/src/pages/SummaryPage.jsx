@@ -19,6 +19,8 @@ export default function SummaryPage() {
   const [periods, setPeriods] = useState([]);
   const [selectedPayPeriodId, setSelectedPayPeriodId] = useState('');
   const [totalEarnings, setTotalEarnings] = useState(0);
+  const [regularEarnings, setRegularEarnings] = useState(0);
+  const [overtimeEarnings, setOvertimeEarnings] = useState(0);
   const [totalReimbursements, setTotalReimbursements] = useState(0);
   const [internalReimbursements, setInternalReimbursements] = useState(0);
   const [paychexRecurringReimbursements, setPaychexRecurringReimbursements] =
@@ -34,6 +36,28 @@ export default function SummaryPage() {
   );
 
   const cashRequirements = totalEarnings + totalReimbursements + employerLiability;
+
+  function applyAnalysis(analysis) {
+    setTotalEarnings(analysis.totalEarnings ?? 0);
+    setRegularEarnings(analysis.regularEarnings ?? 0);
+    setOvertimeEarnings(analysis.overtimeEarnings ?? 0);
+    setTotalReimbursements(analysis.totalReimbursements ?? 0);
+    setInternalReimbursements(analysis.internalReimbursements ?? 0);
+    setPaychexRecurringReimbursements(
+      analysis.paychexRecurringReimbursements ?? 0
+    );
+    setEmployerLiability(analysis.employerLiability ?? 0);
+  }
+
+  function clearAnalysis() {
+    setTotalEarnings(0);
+    setRegularEarnings(0);
+    setOvertimeEarnings(0);
+    setTotalReimbursements(0);
+    setInternalReimbursements(0);
+    setPaychexRecurringReimbursements(0);
+    setEmployerLiability(0);
+  }
 
   useEffect(() => {
     async function loadPeriods() {
@@ -65,11 +89,7 @@ export default function SummaryPage() {
 
   useEffect(() => {
     if (!token || !selectedPeriod) {
-      setTotalEarnings(0);
-      setTotalReimbursements(0);
-      setInternalReimbursements(0);
-      setPaychexRecurringReimbursements(0);
-      setEmployerLiability(0);
+      clearAnalysis();
       return undefined;
     }
 
@@ -85,22 +105,11 @@ export default function SummaryPage() {
         });
         const analysis = await apiGet(`/api/summary/analysis?${params.toString()}`, token);
         if (cancelled) return;
-
-        setTotalEarnings(analysis.totalEarnings ?? 0);
-        setTotalReimbursements(analysis.totalReimbursements ?? 0);
-        setInternalReimbursements(analysis.internalReimbursements ?? 0);
-        setPaychexRecurringReimbursements(
-          analysis.paychexRecurringReimbursements ?? 0
-        );
-        setEmployerLiability(analysis.employerLiability ?? 0);
+        applyAnalysis(analysis);
       } catch (err) {
         if (cancelled) return;
         setError(err.message || 'Failed to load summary');
-        setTotalEarnings(0);
-        setTotalReimbursements(0);
-        setInternalReimbursements(0);
-        setPaychexRecurringReimbursements(0);
-        setEmployerLiability(0);
+        clearAnalysis();
       } finally {
         if (!cancelled) setAnalysisLoading(false);
       }
@@ -129,13 +138,7 @@ export default function SummaryPage() {
         `/api/summary/analysis?${params.toString()}`,
         token
       );
-      setTotalEarnings(analysis.totalEarnings ?? 0);
-      setTotalReimbursements(analysis.totalReimbursements ?? 0);
-      setInternalReimbursements(analysis.internalReimbursements ?? 0);
-      setPaychexRecurringReimbursements(
-        analysis.paychexRecurringReimbursements ?? 0
-      );
-      setEmployerLiability(analysis.employerLiability ?? 0);
+      applyAnalysis(analysis);
     }
 
     return result.message || 'Recurring reimbursements synced.';
@@ -167,10 +170,22 @@ export default function SummaryPage() {
 
       <section style={statsSectionStyle}>
         <div style={statCardStyle}>
-          <h2 style={statTitleStyle}>Total Gross Pay</h2>
-          <p style={statValueStyle}>{formatCurrency(totalEarnings)}</p>
+          <h2 style={statTitleStyle}>Gross Pay</h2>
+          <div style={breakdownRowStyle}>
+            <span>Regular</span>
+            <strong>{formatCurrency(regularEarnings)}</strong>
+          </div>
+          <div style={breakdownRowStyle}>
+            <span>Overtime</span>
+            <strong>{formatCurrency(overtimeEarnings)}</strong>
+          </div>
+          <div style={breakdownTotalRowStyle}>
+            <span>Total Gross Pay</span>
+            <strong style={statValueStyle}>{formatCurrency(totalEarnings)}</strong>
+          </div>
           <p style={statSubtextStyle}>
-            Includes regular, overtime, and PTO. Excludes reimbursements.
+            Regular includes straight-time and PTO. Overtime includes OT and doubletime.
+            Excludes reimbursements.
           </p>
         </div>
         <div style={statCardStyle}>
@@ -225,6 +240,25 @@ const statValueStyle = {
   margin: 0,
   fontSize: '1.75rem',
   fontWeight: 700,
+};
+
+const breakdownRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  gap: '0.75rem',
+  margin: '0.25rem 0',
+  fontSize: '0.95rem',
+};
+
+const breakdownTotalRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  gap: '0.75rem',
+  margin: '0.75rem 0 0',
+  paddingTop: '0.5rem',
+  borderTop: '1px solid #ddd',
 };
 
 const statSubtextStyle = {

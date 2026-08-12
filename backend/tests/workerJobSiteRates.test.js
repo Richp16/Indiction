@@ -214,7 +214,10 @@ describe('getEffectiveRate + loadHoursRows overrides (integration)', () => {
     await query(`DELETE FROM worker_job_site_rates WHERE worker_id = $1`, [workerId]);
 
     const earnings = await getCompanyEarnings(payPeriodId);
-    assert.ok(Number.isFinite(earnings));
+    assert.ok(earnings && typeof earnings === 'object');
+    assert.ok(Number.isFinite(earnings.total));
+    assert.ok(Number.isFinite(earnings.regular));
+    assert.ok(Number.isFinite(earnings.overtimeTotal));
 
     const summary = await getAggregatedSummary(payPeriodId);
     assert.ok(Array.isArray(summary));

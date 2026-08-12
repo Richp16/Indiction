@@ -9,6 +9,29 @@ SELECT
     CASE
       WHEN te.paychex_component_id IN ('REGULAR', 'HOURLY', 'Hourly', 'Regular')
         THEN te.hours * COALESCE(wjsr.rate, w.standard_rate, 0)
+      WHEN te.paychex_component_id IN ('PTO', 'Vacation', 'Sick')
+        THEN te.hours * COALESCE(wjsr.rate, w.standard_rate, 0)
+      ELSE 0
+    END
+  ), 0) AS regular_earnings,
+  COALESCE(SUM(
+    CASE
+      WHEN te.paychex_component_id IN ('OT', 'OVERTIME', 'Overtime')
+        THEN te.hours * COALESCE(wjsr.rate, w.standard_rate, 0) * ${OT_EARNINGS_MULTIPLIER}
+      ELSE 0
+    END
+  ), 0) AS overtime_earnings,
+  COALESCE(SUM(
+    CASE
+      WHEN te.paychex_component_id IN ('DT', 'DOUBLETIME', 'Doubletime')
+        THEN te.hours * COALESCE(wjsr.rate, w.standard_rate, 0) * 2
+      ELSE 0
+    END
+  ), 0) AS doubletime_earnings,
+  COALESCE(SUM(
+    CASE
+      WHEN te.paychex_component_id IN ('REGULAR', 'HOURLY', 'Hourly', 'Regular')
+        THEN te.hours * COALESCE(wjsr.rate, w.standard_rate, 0)
       WHEN te.paychex_component_id IN ('OT', 'OVERTIME', 'Overtime')
         THEN te.hours * COALESCE(wjsr.rate, w.standard_rate, 0) * ${OT_EARNINGS_MULTIPLIER}
       WHEN te.paychex_component_id IN ('DT', 'DOUBLETIME', 'Doubletime')
@@ -104,8 +127,19 @@ async function getAggregatedSummary(payPeriodId) {
 
 async function getCompanyEarnings(payPeriodId) {
   const result = await query(COMPANY_EARNINGS_SQL, [payPeriodId]);
-  const total = parseFloat(result.rows[0]?.total_earnings) || 0;
-  return total;
+  const row = result.rows[0] || {};
+  const regular = parseFloat(row.regular_earnings) || 0;
+  const overtime = parseFloat(row.overtime_earnings) || 0;
+  const doubletime = parseFloat(row.doubletime_earnings) || 0;
+  const total = parseFloat(row.total_earnings) || 0;
+  return {
+    regular,
+    overtime,
+    doubletime,
+    // OT + DT for the summary "overtime hours amount" line.
+    overtimeTotal: overtime + doubletime,
+    total,
+  };
 }
 
 async function getCompanyReimbursements(payPeriodId) {
