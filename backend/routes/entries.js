@@ -8,10 +8,7 @@ const {
   DailyEntryError,
 } = require('../services/dailyEntryService');
 const { getWeekBounds } = require('../services/entryPayCode');
-const {
-  requireDailyEntriesLockFromBody,
-  requireDailyEntriesLockFromId,
-} = require('../middleware/editLock');
+const { requireGlobalEditLock } = require('../middleware/editLock');
 
 const router = express.Router();
 
@@ -55,7 +52,7 @@ function mapDailyRowToLegacyShape(row) {
   };
 }
 
-router.post('/', requireDailyEntriesLockFromBody, async (req, res) => {
+router.post('/', requireGlobalEditLock, async (req, res) => {
   try {
     const {
       workerId,
@@ -196,20 +193,20 @@ async function updateEntry(req, res) {
 router.put(
   '/:id',
   requireRole('system_admin', 'payroll_admin'),
-  requireDailyEntriesLockFromId,
+  requireGlobalEditLock,
   updateEntry
 );
 router.patch(
   '/:id',
   requireRole('system_admin', 'payroll_admin'),
-  requireDailyEntriesLockFromId,
+  requireGlobalEditLock,
   updateEntry
 );
 
 router.delete(
   '/:id',
   requireRole('system_admin', 'payroll_admin'),
-  requireDailyEntriesLockFromId,
+  requireGlobalEditLock,
   async (req, res) => {
     try {
       await deleteDailyEntry(req.params.id);

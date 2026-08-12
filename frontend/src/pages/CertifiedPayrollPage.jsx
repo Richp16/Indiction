@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { certifiedPayrollScope, useEditScope } from '../context/EditLockContext';
+import { useEditLock } from '../context/EditLockContext';
 import { apiGet, apiPatch, apiPost, apiPostDownload } from '../api/client';
 import { downloadFile } from '../utils/downloadFile';
 import PaychexSyncButton from '../components/PaychexSyncButton';
@@ -160,7 +160,7 @@ export default function CertifiedPayrollPage() {
     loadError,
   } = useCertifiedPayrollData(token);
 
-  const editLock = useEditScope(certifiedPayrollScope(selectedSite));
+  const { readOnly } = useEditLock();
 
   const [isResyncing, setIsResyncing] = useState(false);
   const [error, setError] = useState('');
@@ -598,7 +598,7 @@ export default function CertifiedPayrollPage() {
           label="Re-sync from Paychex"
           token={token}
           onSync={resyncFromPaychex}
-          disabled={!selectedSite || !weekEndingDate || isLoadingPageData || editLock.readOnly}
+          disabled={!selectedSite || !weekEndingDate || isLoadingPageData || readOnly}
           className=""
           style={secondaryButtonStyle}
         />
@@ -626,7 +626,7 @@ export default function CertifiedPayrollPage() {
             !weekEndingDate ||
             isLoadingPageData ||
             hasMissingClassifications ||
-            editLock.readOnly
+            readOnly
           }
           title={
             hasMissingClassifications

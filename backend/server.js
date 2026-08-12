@@ -42,7 +42,7 @@ app.use('/api/auth', authRoutes);
 
 app.use(auth);
 
-app.use('/api/edit-locks', require('./routes/editLocks'));
+app.use('/api/edit-lock', require('./routes/editLock'));
 app.use('/api/account', require('./routes/account'));
 app.use('/api/workers', workersRoutes);
 app.use('/api/job-sites', jobSitesRoutes);

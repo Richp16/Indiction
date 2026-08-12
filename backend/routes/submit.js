@@ -2,13 +2,13 @@ const express = require('express');
 const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
 const { submitPayroll, validatePayroll } = require('../services/paychexSubmit');
-const { requirePayrollLock } = require('../middleware/editLock');
+const { requireGlobalEditLock } = require('../middleware/editLock');
 
 const router = express.Router();
 
 router.use(requireRole('payroll_admin', 'system_admin'));
 
-router.post('/validate', async (req, res) => {
+router.post('/validate', requireGlobalEditLock, async (req, res) => {
   try {
     const { payPeriodId } = req.body;
     if (!payPeriodId) {
@@ -22,7 +22,7 @@ router.post('/validate', async (req, res) => {
   }
 });
 
-router.post('/confirm', requirePayrollLock, async (req, res) => {
+router.post('/confirm', requireGlobalEditLock, async (req, res) => {
   try {
     const { payPeriodId } = req.body;
     if (!payPeriodId) {

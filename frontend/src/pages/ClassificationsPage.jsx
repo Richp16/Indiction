@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { ADMIN_CONFIG_SCOPE, useEditScope } from '../context/EditLockContext';
 import { apiDelete, apiGet, apiPatch, apiPost } from '../api/client';
 
 export default function ClassificationsPage() {
   const { token } = useAuth();
-  useEditScope(ADMIN_CONFIG_SCOPE);
   const [rows, setRows] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [name, setName] = useState('');
@@ -163,3 +161,4 @@ export default function ClassificationsPage() {
     </div>
   );
 }
+

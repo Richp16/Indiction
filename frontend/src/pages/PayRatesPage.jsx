@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { ADMIN_CONFIG_SCOPE, useEditScope } from '../context/EditLockContext';
 import { apiDelete, apiGet, apiPost } from '../api/client';
 
 function formatMoney(value) {
@@ -17,7 +16,6 @@ function formatMoney(value) {
 
 export default function PayRatesPage() {
   const { token } = useAuth();
-  useEditScope(ADMIN_CONFIG_SCOPE);
   const [workers, setWorkers] = useState([]);
   const [jobSites, setJobSites] = useState([]);
   const [overrides, setOverrides] = useState([]);
@@ -234,3 +232,4 @@ export default function PayRatesPage() {
     </div>
   );
 }
+

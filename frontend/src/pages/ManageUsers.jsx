@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { ADMIN_CONFIG_SCOPE, useEditScope } from '../context/EditLockContext';
 import { apiGet, apiPost, apiDelete, apiPatch } from '../api/client';
 
 const ROLE_OPTIONS = [
@@ -17,7 +16,6 @@ function formatRole(role) {
 
 export default function ManageUsers() {
   const { token, user } = useAuth();
-  useEditScope(ADMIN_CONFIG_SCOPE);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -223,3 +221,4 @@ export default function ManageUsers() {
     </div>
   );
 }
+

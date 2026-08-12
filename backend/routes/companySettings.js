@@ -1,7 +1,7 @@
 const express = require('express');
 const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
-const { requireAdminConfigLock } = require('../middleware/editLock');
+const { requireGlobalEditLock } = require('../middleware/editLock');
 
 const router = express.Router();
 
@@ -23,7 +23,7 @@ router.get('/', requireRole('system_admin', 'payroll_admin'), async (_req, res) 
 router.patch(
   '/',
   requireRole('system_admin', 'payroll_admin'),
-  requireAdminConfigLock,
+  requireGlobalEditLock,
   async (req, res) => {
     try {
       const {

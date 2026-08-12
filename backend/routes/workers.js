@@ -3,7 +3,7 @@ const { query } = require('../db');
 const { isReimbursementComponentName } = require('../config/paychex');
 const { getWeekBounds } = require('../services/entryPayCode');
 const { requireRole } = require('../middleware/roleGuard');
-const { requireAdminConfigLock } = require('../middleware/editLock');
+const { requireGlobalEditLock } = require('../middleware/editLock');
 
 const router = express.Router();
 
@@ -112,7 +112,7 @@ router.get('/assignments', requireRole('system_admin', 'payroll_admin'), async (
 router.patch(
   '/:id/classification',
   requireRole('system_admin', 'payroll_admin'),
-  requireAdminConfigLock,
+  requireGlobalEditLock,
   async (req, res) => {
     try {
       await updateWorkerLaborClassification(req, res, {
@@ -128,7 +128,7 @@ router.patch(
 router.patch(
   '/:id/labor-classification',
   requireRole('system_admin', 'payroll_admin'),
-  requireAdminConfigLock,
+  requireGlobalEditLock,
   async (req, res) => {
     try {
       await updateWorkerLaborClassification(req, res, {
@@ -329,7 +329,7 @@ router.get(
   }
 );
 
-router.patch('/:id', requireRole('system_admin', 'payroll_admin'), requireAdminConfigLock, async (req, res) => {
+router.patch('/:id', requireRole('system_admin', 'payroll_admin'), requireGlobalEditLock, async (req, res) => {
   try {
     const { worker_type } = req.body;
     if (!['J', 'RA'].includes(worker_type)) {

@@ -100,7 +100,7 @@ function PayrollDropdown() {
   const { paychexEnabled } = useAuth();
   const items = [];
   if (paychexEnabled !== false) {
-    items.push({ to: '/payroll', label: 'Paychex SPI' });
+    items.push({ to: '/payroll', label: 'Paychex Export' });
   }
   items.push({ to: '/job-costing', label: 'Job Costing' });
 

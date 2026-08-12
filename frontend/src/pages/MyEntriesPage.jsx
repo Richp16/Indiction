@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, Fragment } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { dailyEntriesScope, useEditLock } from '../context/EditLockContext';
+import { useEditLock } from '../context/EditLockContext';
 import { apiGet, apiDelete, API_BASE_URL } from '../api/client';
 import PayPeriodSelector from '../components/PayPeriodSelector';
 import { downloadFile } from '../utils/downloadFile';
@@ -79,7 +79,7 @@ function EntriesSkeleton() {
 
 export default function MyEntriesPage() {
   const { token, isAdmin } = useAuth();
-  const { acquire, release } = useEditLock();
+  const { readOnly, editingUser } = useEditLock();
   const [periods, setPeriods] = useState([]);
   const [selectedPayPeriodId, setSelectedPayPeriodId] = useState('');
   const [entries, setEntries] = useState([]);
@@ -161,6 +161,12 @@ export default function MyEntriesPage() {
 
   async function handleDeleteEntry(entry) {
     if (!isAdmin || !entry?.id) return;
+    if (readOnly) {
+      setError(
+        `Read-only: ${editingUser?.name || 'another user'} currently has edit rights.`
+      );
+      return;
+    }
     const worker = formatWorkerName(entry);
     const dateLabel = formatDateHeading(entry.entry_date);
     if (
@@ -172,15 +178,6 @@ export default function MyEntriesPage() {
     }
     setDeletingId(entry.id);
     setError('');
-    const scopeKey = dailyEntriesScope(entry.job_site_id);
-    const lockResult = await acquire(scopeKey);
-    if (!lockResult.ok) {
-      setError(
-        `Read-only: ${lockResult.lock?.holderName || 'another user'} currently has edit rights for this job site.`
-      );
-      setDeletingId('');
-      return;
-    }
     try {
       await apiDelete(`/api/entries/${entry.id}`, token);
       setEntries((prev) => prev.filter((row) => row.id !== entry.id));
@@ -188,7 +185,6 @@ export default function MyEntriesPage() {
       setError(err.message || 'Failed to delete entry');
       setEntriesRefresh((n) => n + 1);
     } finally {
-      await release(scopeKey);
       setDeletingId('');
     }
   }
@@ -325,10 +321,14 @@ export default function MyEntriesPage() {
                             <button
                               type="button"
                               className="btn btn-secondary"
-                              disabled={deletingId === entry.id}
+                              disabled={deletingId === entry.id || readOnly}
                               onClick={() => handleDeleteEntry(entry)}
                             >
-                              {deletingId === entry.id ? 'Deleting…' : 'Delete'}
+                              {deletingId === entry.id
+                                ? 'Deleting…'
+                                : readOnly
+                                  ? 'Read-only'
+                                  : 'Delete'}
                             </button>
                           </td>
                         ) : null}

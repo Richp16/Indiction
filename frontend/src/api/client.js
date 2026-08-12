@@ -19,6 +19,7 @@ async function parseResponse(res) {
     error.status = res.status;
     error.code = data.code;
     error.lock = data.lock || null;
+    error.editingUser = data.editingUser || data.lock?.editingUser || null;
     error.debug = data.debug || null;
     throw error;
   }

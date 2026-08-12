@@ -1,37 +1,14 @@
 /**
- * Resource-scoped edit locks (first holder wins; role does not matter).
+ * Global app-wide edit lock — exactly one editor at a time.
  *
- * Scopes:
- *   daily_entries:{jobSiteId}      — Daily Entry / My Entries mutations
- *   certified_payroll:{jobSiteId}  — Certified Payroll mutations for a site
- *   admin_config                   — job sites, workers, classifications, rates,
- *                                    company settings, users
- *   payroll                        — payroll export edits, submit, period syncs
+ * Acquire is transactional with SELECT … FOR UPDATE + unique singleton row
+ * so concurrent acquires are decided by the database, not check-then-insert.
  */
 
-const { query } = require('../db');
+const { pool, query } = require('../db');
 
 /** Seconds without heartbeat before another user may claim the lock. */
-const LOCK_TIMEOUT_SECONDS = Number(process.env.EDIT_LOCK_TIMEOUT_SECONDS || 300);
-
-const SCOPES = {
-  DAILY_ENTRIES: 'daily_entries',
-  CERTIFIED_PAYROLL: 'certified_payroll',
-  ADMIN_CONFIG: 'admin_config',
-  PAYROLL: 'payroll',
-};
-
-function dailyEntriesScope(jobSiteId) {
-  const id = jobSiteId != null && String(jobSiteId).trim() !== ''
-    ? String(jobSiteId)
-    : '_none';
-  return `${SCOPES.DAILY_ENTRIES}:${id}`;
-}
-
-function certifiedPayrollScope(jobSiteId) {
-  if (jobSiteId == null || String(jobSiteId).trim() === '') return null;
-  return `${SCOPES.CERTIFIED_PAYROLL}:${jobSiteId}`;
-}
+const LOCK_TIMEOUT_SECONDS = Number(process.env.EDIT_LOCK_TIMEOUT_SECONDS || 90);
 
 function isLockExpired(row, now = Date.now()) {
   if (!row?.last_heartbeat_at) return true;
@@ -39,13 +16,24 @@ function isLockExpired(row, now = Date.now()) {
   return now - last > LOCK_TIMEOUT_SECONDS * 1000;
 }
 
-function serializeLock(row) {
+function serializeEditingUser(row) {
   if (!row) return null;
   return {
-    scopeKey: row.scope_key,
-    holderUserId: row.holder_user_id,
-    holderName: row.holder_name || row.holder_email || 'Another user',
-    holderEmail: row.holder_email || null,
+    userId: row.user_id,
+    name: row.holder_name || row.holder_email || 'Another user',
+    email: row.holder_email || null,
+    role: row.holder_role || null,
+  };
+}
+
+function serializeLock(row) {
+  if (!row) return null;
+  const editingUser = serializeEditingUser(row);
+  return {
+    holderUserId: row.user_id,
+    holderName: editingUser.name,
+    holderEmail: editingUser.email,
+    holderRole: editingUser.role,
     acquiredAt: row.acquired_at,
     lastHeartbeatAt: row.last_heartbeat_at,
     expiresInSeconds: Math.max(
@@ -53,182 +41,240 @@ function serializeLock(row) {
       LOCK_TIMEOUT_SECONDS -
         Math.floor((Date.now() - new Date(row.last_heartbeat_at).getTime()) / 1000)
     ),
+    editingUser,
   };
 }
 
-async function loadUserDisplay(userId) {
-  const result = await query(
-    `SELECT id, name, email FROM users WHERE id = $1`,
+async function loadUserDisplay(clientOrPool, userId) {
+  const result = await clientOrPool.query(
+    `SELECT id, name, email, role FROM users WHERE id = $1`,
     [userId]
   );
   const user = result.rows[0];
   if (!user) {
-    return { name: 'Unknown user', email: null };
+    return { name: 'Unknown user', email: null, role: null };
   }
   return {
     name: user.name || user.email || 'Unknown user',
     email: user.email || null,
+    role: user.role || null,
   };
 }
 
-async function getLockRow(scopeKey) {
-  const result = await query(`SELECT * FROM edit_locks WHERE scope_key = $1`, [scopeKey]);
-  return result.rows[0] || null;
-}
-
-async function purgeExpiredLock(scopeKey) {
-  const row = await getLockRow(scopeKey);
-  if (row && isLockExpired(row)) {
-    await query(`DELETE FROM edit_locks WHERE scope_key = $1`, [scopeKey]);
-    return true;
-  }
-  return false;
+async function insertLock(client, userId, display) {
+  const result = await client.query(
+    `INSERT INTO active_edit_lock (
+       singleton, user_id, holder_name, holder_email, holder_role
+     ) VALUES (1, $1, $2, $3, $4)
+     RETURNING *`,
+    [userId, display.name, display.email, display.role]
+  );
+  return result.rows[0];
 }
 
 /**
- * Acquire (or refresh) a lock for the given user.
- * First holder wins; same holder may re-acquire to refresh heartbeat.
+ * Atomically acquire (or refresh) the global edit lock for userId.
+ * Concurrent callers: one wins via FOR UPDATE + singleton PK.
  */
-async function acquireLock(scopeKey, userId) {
-  if (!scopeKey || !userId) {
-    const error = new Error('scopeKey and userId are required');
+async function acquireLock(userId) {
+  if (!userId) {
+    const error = new Error('userId is required');
     error.statusCode = 400;
     throw error;
   }
 
-  await purgeExpiredLock(scopeKey);
-  const existing = await getLockRow(scopeKey);
-
-  if (existing && String(existing.holder_user_id) !== String(userId)) {
-    return {
-      ok: false,
-      reason: 'held',
-      lock: serializeLock(existing),
-    };
-  }
-
-  const display = await loadUserDisplay(userId);
-
-  if (existing) {
-    const result = await query(
-      `UPDATE edit_locks
-       SET last_heartbeat_at = now(),
-           holder_name = $2,
-           holder_email = $3
-       WHERE scope_key = $1 AND holder_user_id = $4
-       RETURNING *`,
-      [scopeKey, display.name, display.email, userId]
-    );
-    return { ok: true, lock: serializeLock(result.rows[0]), refreshed: true };
-  }
-
+  const client = await pool.connect();
   try {
-    const result = await query(
-      `INSERT INTO edit_locks (scope_key, holder_user_id, holder_name, holder_email)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [scopeKey, userId, display.name, display.email]
+    await client.query('BEGIN');
+
+    const existing = await client.query(
+      `SELECT * FROM active_edit_lock WHERE singleton = 1 FOR UPDATE`
     );
-    return { ok: true, lock: serializeLock(result.rows[0]), refreshed: false };
-  } catch (error) {
-    // Race: another user inserted first.
-    if (error.code === '23505') {
-      const winner = await getLockRow(scopeKey);
+    const row = existing.rows[0] || null;
+
+    if (row && !isLockExpired(row)) {
+      if (String(row.user_id) === String(userId)) {
+        const display = await loadUserDisplay(client, userId);
+        const refreshed = await client.query(
+          `UPDATE active_edit_lock
+           SET last_heartbeat_at = now(),
+               holder_name = $2,
+               holder_email = $3,
+               holder_role = $4
+           WHERE singleton = 1 AND user_id = $1
+           RETURNING *`,
+          [userId, display.name, display.email, display.role]
+        );
+        await client.query('COMMIT');
+        return {
+          ok: true,
+          isEditor: true,
+          refreshed: true,
+          lock: serializeLock(refreshed.rows[0]),
+          editingUser: null,
+        };
+      }
+
+      await client.query('COMMIT');
       return {
         ok: false,
-        reason: 'held',
-        lock: serializeLock(winner),
+        isEditor: false,
+        lock: serializeLock(row),
+        editingUser: serializeEditingUser(row),
       };
     }
+
+    if (row && isLockExpired(row)) {
+      await client.query(`DELETE FROM active_edit_lock WHERE singleton = 1`);
+    }
+
+    const display = await loadUserDisplay(client, userId);
+
+    try {
+      const inserted = await insertLock(client, userId, display);
+      await client.query('COMMIT');
+      return {
+        ok: true,
+        isEditor: true,
+        refreshed: false,
+        lock: serializeLock(inserted),
+        editingUser: null,
+      };
+    } catch (error) {
+      // Concurrent insert raced past FOR UPDATE on empty table; PK wins.
+      if (error.code === '23505') {
+        await client.query('ROLLBACK');
+        const winner = await query(
+          `SELECT * FROM active_edit_lock WHERE singleton = 1`
+        );
+        const winnerRow = winner.rows[0] || null;
+        if (winnerRow && String(winnerRow.user_id) === String(userId)) {
+          return {
+            ok: true,
+            isEditor: true,
+            refreshed: true,
+            lock: serializeLock(winnerRow),
+            editingUser: null,
+          };
+        }
+        return {
+          ok: false,
+          isEditor: false,
+          lock: serializeLock(winnerRow),
+          editingUser: serializeEditingUser(winnerRow),
+        };
+      }
+      throw error;
+    }
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // ignore
+    }
     throw error;
+  } finally {
+    client.release();
   }
 }
 
-async function heartbeatLock(scopeKey, userId) {
-  await purgeExpiredLock(scopeKey);
+async function heartbeatLock(userId) {
   const result = await query(
-    `UPDATE edit_locks
+    `UPDATE active_edit_lock
      SET last_heartbeat_at = now()
-     WHERE scope_key = $1 AND holder_user_id = $2
+     WHERE singleton = 1 AND user_id = $1
      RETURNING *`,
-    [scopeKey, userId]
+    [userId]
   );
   if (!result.rows[0]) {
-    return { ok: false, reason: 'not_holder', lock: serializeLock(await getLockRow(scopeKey)) };
+    const current = await getLockStatus();
+    return {
+      ok: false,
+      isEditor: false,
+      lock: current.lock,
+      editingUser: current.editingUser,
+    };
   }
-  return { ok: true, lock: serializeLock(result.rows[0]) };
+  return {
+    ok: true,
+    isEditor: true,
+    lock: serializeLock(result.rows[0]),
+    editingUser: null,
+  };
 }
 
-async function releaseLock(scopeKey, userId) {
+async function releaseLock(userId) {
   const result = await query(
-    `DELETE FROM edit_locks
-     WHERE scope_key = $1 AND holder_user_id = $2
+    `DELETE FROM active_edit_lock
+     WHERE singleton = 1 AND user_id = $1
      RETURNING *`,
-    [scopeKey, userId]
+    [userId]
   );
   return { ok: true, released: result.rowCount > 0 };
 }
 
-async function releaseAllForUser(userId) {
-  const result = await query(
-    `DELETE FROM edit_locks WHERE holder_user_id = $1 RETURNING scope_key`,
-    [userId]
-  );
-  return {
-    ok: true,
-    releasedScopes: result.rows.map((row) => row.scope_key),
-  };
-}
+/**
+ * Status for polling. Purges a stale lock so the next acquire can succeed.
+ */
+async function getLockStatus() {
+  const result = await query(`SELECT * FROM active_edit_lock WHERE singleton = 1`);
+  const row = result.rows[0] || null;
 
-async function getLockStatus(scopeKeys = null) {
-  // Opportunistic cleanup of stale locks.
-  await query(
-    `DELETE FROM edit_locks
-     WHERE last_heartbeat_at < now() - ($1::text || ' seconds')::interval`,
-    [String(LOCK_TIMEOUT_SECONDS)]
-  );
-
-  let result;
-  if (Array.isArray(scopeKeys) && scopeKeys.length > 0) {
-    result = await query(
-      `SELECT * FROM edit_locks WHERE scope_key = ANY($1::text[])`,
-      [scopeKeys]
+  if (row && isLockExpired(row)) {
+    await query(
+      `DELETE FROM active_edit_lock
+       WHERE singleton = 1
+         AND last_heartbeat_at < now() - ($1::text || ' seconds')::interval`,
+      [String(LOCK_TIMEOUT_SECONDS)]
     );
-  } else {
-    result = await query(`SELECT * FROM edit_locks ORDER BY scope_key`);
+    return {
+      lock: null,
+      editingUser: null,
+      timeoutSeconds: LOCK_TIMEOUT_SECONDS,
+    };
   }
 
-  const locks = {};
-  for (const row of result.rows) {
-    locks[row.scope_key] = serializeLock(row);
-  }
   return {
-    locks,
+    lock: serializeLock(row),
+    editingUser: serializeEditingUser(row),
     timeoutSeconds: LOCK_TIMEOUT_SECONDS,
   };
 }
 
 /**
- * Assert current user holds the lock (or acquire if free/expired).
- * Used by mutation middleware — first caller wins.
+ * Mutation gate: current user must already hold a non-stale lock.
+ * Does not release on failed mutations — holder keeps the lock until
+ * logout / explicit release / heartbeat timeout.
  */
-async function assertOrAcquireLock(scopeKey, userId) {
-  const acquired = await acquireLock(scopeKey, userId);
-  if (acquired.ok) return acquired;
-  return acquired;
+async function assertHoldsGlobalLock(userId) {
+  const status = await getLockStatus();
+  if (!status.lock) {
+    return {
+      ok: false,
+      reason: 'unlocked',
+      editingUser: null,
+      lock: null,
+    };
+  }
+  if (String(status.lock.holderUserId) !== String(userId)) {
+    return {
+      ok: false,
+      reason: 'held',
+      editingUser: status.editingUser,
+      lock: status.lock,
+    };
+  }
+  return { ok: true, lock: status.lock, editingUser: null };
 }
 
 module.exports = {
   LOCK_TIMEOUT_SECONDS,
-  SCOPES,
-  dailyEntriesScope,
-  certifiedPayrollScope,
   acquireLock,
   heartbeatLock,
   releaseLock,
-  releaseAllForUser,
   getLockStatus,
-  assertOrAcquireLock,
+  assertHoldsGlobalLock,
   serializeLock,
+  serializeEditingUser,
   isLockExpired,
 };

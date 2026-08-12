@@ -2,7 +2,7 @@ const express = require('express');
 const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
 const { selectAllJobSites } = require('../db/jobSiteQuery');
-const { requireAdminConfigLock } = require('../middleware/editLock');
+const { requireGlobalEditLock } = require('../middleware/editLock');
 
 const router = express.Router();
 
@@ -27,7 +27,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/', requireRole('system_admin', 'payroll_admin'), requireAdminConfigLock, async (req, res) => {
+router.post('/', requireRole('system_admin', 'payroll_admin'), requireGlobalEditLock, async (req, res) => {
   try {
     const {
       name,
@@ -74,7 +74,7 @@ router.post('/', requireRole('system_admin', 'payroll_admin'), requireAdminConfi
   }
 });
 
-router.patch('/:id', requireRole('system_admin', 'payroll_admin'), requireAdminConfigLock, async (req, res) => {
+router.patch('/:id', requireRole('system_admin', 'payroll_admin'), requireGlobalEditLock, async (req, res) => {
   try {
     const { name, job_code, address, contract_number, wage_determination_no, start_date, is_active } =
       req.body;
@@ -139,7 +139,7 @@ router.patch('/:id', requireRole('system_admin', 'payroll_admin'), requireAdminC
   }
 });
 
-router.delete('/:id', requireRole('system_admin', 'payroll_admin'), requireAdminConfigLock, async (req, res) => {
+router.delete('/:id', requireRole('system_admin', 'payroll_admin'), requireGlobalEditLock, async (req, res) => {
   try {
     const result = await query('UPDATE job_sites SET is_active = false WHERE id = $1 RETURNING id', [
       req.params.id,

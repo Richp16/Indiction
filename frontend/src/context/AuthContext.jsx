@@ -79,7 +79,7 @@ export function AuthProvider({ children }) {
       }
     } else if (authToken) {
       try {
-        await apiPost('/api/edit-locks/release-all', {}, authToken);
+        await apiPost('/api/edit-lock/release', {}, authToken);
       } catch {
         // ignore
       }

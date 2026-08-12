@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { dailyEntriesScope, useEditScope } from '../context/EditLockContext';
+import { useEditLock } from '../context/EditLockContext';
 import { apiGet, apiPost } from '../api/client';
 
 const BASE_PAY_CODES = [
@@ -48,11 +48,11 @@ function remainingOtColor(remaining) {
 
 export default function DailyEntry() {
   const { token, isAdmin } = useAuth();
+  const { readOnly, editingUser } = useEditLock();
 
   const [period, setPeriod] = useState(null);
   const [jobSites, setJobSites] = useState([]);
   const [selectedJobSiteId, setSelectedJobSiteId] = useState('');
-  const editLock = useEditScope(dailyEntriesScope(selectedJobSiteId));
   const [searchText, setSearchText] = useState('');
   const [workerResults, setWorkerResults] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState(null);
@@ -240,9 +240,9 @@ export default function DailyEntry() {
     setError('');
     setSavedMessage('');
 
-    if (editLock.readOnly) {
+    if (readOnly) {
       setError(
-        `Read-only: ${editLock.holderName || 'another user'} currently has edit rights for this job site.`
+        `Read-only: ${editingUser?.name || 'another user'} currently has edit rights.`
       );
       return;
     }
@@ -588,8 +588,8 @@ export default function DailyEntry() {
           </p>
         )}
 
-        <button type="submit" disabled={saving || editLock.readOnly}>
-          {saving ? 'Saving…' : editLock.readOnly ? 'Read-only' : 'Save Entry'}
+        <button type="submit" disabled={saving || readOnly}>
+          {saving ? 'Saving…' : readOnly ? 'Read-only' : 'Save Entry'}
         </button>
       </form>
     </div>

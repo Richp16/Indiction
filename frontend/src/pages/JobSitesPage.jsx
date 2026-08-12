@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { ADMIN_CONFIG_SCOPE, useEditScope } from '../context/EditLockContext';
 import { apiDelete, apiGet, apiPatch, apiPost } from '../api/client';
 
 const emptyForm = {
@@ -19,7 +18,6 @@ function toDateInputValue(value) {
 
 export default function JobSitesPage() {
   const { token } = useAuth();
-  useEditScope(ADMIN_CONFIG_SCOPE);
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [editing, setEditing] = useState(null);
@@ -144,3 +142,4 @@ export default function JobSitesPage() {
     </div>
   );
 }
+
