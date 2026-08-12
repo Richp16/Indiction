@@ -3,6 +3,7 @@ const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
 const { runFullSync } = require('../services/paychexSync');
 const { checkPaychexConnectivity } = require('../services/paychexHttp');
+const { requirePayrollLock } = require('../middleware/editLock');
 
 const router = express.Router();
 
@@ -17,7 +18,7 @@ router.get('/sync/paychex-health', async (_req, res) => {
   }
 });
 
-router.post('/sync', async (req, res) => {
+router.post('/sync', requirePayrollLock, async (req, res) => {
   try {
     const results = await runFullSync();
     res.json({ success: true, results });

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { PAYROLL_SCOPE, useEditScope } from '../context/EditLockContext';
 import { apiGet, apiPost } from '../api/client';
 import PayrollExport from '../components/PayrollExport';
 import PayPeriodSelector from '../components/PayPeriodSelector';
@@ -7,6 +8,7 @@ import PaychexSyncButton from '../components/PaychexSyncButton';
 
 export default function PayrollPage() {
   const { token, isAdmin } = useAuth();
+  useEditScope(PAYROLL_SCOPE);
   const [periods, setPeriods] = useState([]);
   const [selectedPayPeriodId, setSelectedPayPeriodId] = useState('');
   const [loading, setLoading] = useState(true);

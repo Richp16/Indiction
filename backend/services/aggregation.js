@@ -125,8 +125,15 @@ async function getAggregatedSummary(payPeriodId) {
   return result.rows;
 }
 
-async function getCompanyEarnings(payPeriodId) {
-  const result = await query(COMPANY_EARNINGS_SQL, [payPeriodId]);
+async function getCompanyEarnings(payPeriodId, { jobSiteId } = {}) {
+  const params = [payPeriodId];
+  let sql = COMPANY_EARNINGS_SQL;
+  if (jobSiteId) {
+    params.push(jobSiteId);
+    sql += ` AND te.job_site_id = $${params.length}`;
+  }
+
+  const result = await query(sql, params);
   const row = result.rows[0] || {};
   const regular = parseFloat(row.regular_earnings) || 0;
   const overtime = parseFloat(row.overtime_earnings) || 0;
@@ -142,23 +149,30 @@ async function getCompanyEarnings(payPeriodId) {
   };
 }
 
-async function getCompanyReimbursements(payPeriodId) {
-  const [internalResult, paychexResult] = await Promise.all([
-    query(
-      `SELECT COALESCE(SUM(reimbursement_amount), 0)::float AS total
+async function getCompanyReimbursements(payPeriodId, { jobSiteId } = {}) {
+  const internalParams = [payPeriodId];
+  let internalSql = `
+      SELECT COALESCE(SUM(reimbursement_amount), 0)::float AS total
        FROM daily_time_entries
-       WHERE pay_period_id = $1`,
-      [payPeriodId]
-    ),
-    // Recurring Paychex reimbursements are modeled as per-pay-period amounts
-    // for active workers (one check per period).
-    query(
-      `SELECT COALESCE(SUM(wrr.amount), 0)::float AS total
-       FROM worker_recurring_reimbursements wrr
-       JOIN workers w ON w.id = wrr.worker_id
-       WHERE w.is_active = true
-         AND wrr.recurring = true`
-    ),
+       WHERE pay_period_id = $1`;
+  if (jobSiteId) {
+    internalParams.push(jobSiteId);
+    internalSql += ` AND job_site_id = $${internalParams.length}`;
+  }
+
+  // Recurring Paychex reimbursements are company-wide (not job-site scoped).
+  // When filtering to a site, exclude them so site totals stay attributable.
+  const [internalResult, paychexResult] = await Promise.all([
+    query(internalSql, internalParams),
+    jobSiteId
+      ? Promise.resolve({ rows: [{ total: 0 }] })
+      : query(
+          `SELECT COALESCE(SUM(wrr.amount), 0)::float AS total
+           FROM worker_recurring_reimbursements wrr
+           JOIN workers w ON w.id = wrr.worker_id
+           WHERE w.is_active = true
+             AND wrr.recurring = true`
+        ),
   ]);
 
   const internal = Number(internalResult.rows[0]?.total) || 0;

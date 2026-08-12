@@ -17,6 +17,7 @@ const {
 const { fetchChecksForWorkers } = require('../services/paychexCheckData');
 const { fillWh347Form } = require('../services/wh347FormFill');
 const { buildWh347PdfLegacy } = require('../services/wh347PdfLegacy');
+const { requireCertifiedPayrollLock } = require('../middleware/editLock');
 
 const router = express.Router();
 router.use(requireRole('system_admin', 'payroll_admin'));
@@ -200,7 +201,7 @@ router.post('/fetch-check-data', async (req, res) => {
   }
 });
 
-router.post('/resync', async (req, res) => {
+router.post('/resync', requireCertifiedPayrollLock, async (req, res) => {
   try {
     const {
       jobSiteId,
@@ -242,7 +243,7 @@ router.post('/resync', async (req, res) => {
   }
 });
 
-router.patch('/supplements', async (req, res) => {
+router.patch('/supplements', requireCertifiedPayrollLock, async (req, res) => {
   try {
     const {
       workerId,
@@ -308,7 +309,7 @@ router.patch('/supplements', async (req, res) => {
   }
 });
 
-router.post('/export', async (req, res) => {
+router.post('/export', requireCertifiedPayrollLock, async (req, res) => {
   try {
     const { jobSiteId, weekEndingDate, payPeriodId } = req.body;
     if (!jobSiteId || !weekEndingDate) {

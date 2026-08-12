@@ -26,6 +26,7 @@ const {
   getWorkerChecksByPayPeriod,
 } = require('../services/paychexPayPeriodApi');
 const { formatPaychexErrorForLog } = require('../services/paychexErrors');
+const { requirePayrollLock } = require('../middleware/editLock');
 
 const router = express.Router();
 router.use(requireRole('system_admin', 'payroll_admin'));
@@ -93,7 +94,7 @@ router.get('/paycomponents', async (_req, res) => {
  * POST /api/paychex/sync-recurring-reimbursements
  * Pull recurring reimbursement amounts from Paychex into local cache.
  */
-router.post('/sync-recurring-reimbursements', async (_req, res) => {
+router.post('/sync-recurring-reimbursements', requirePayrollLock, async (_req, res) => {
   try {
     const {
       syncRecurringReimbursementsForAllWorkers,
@@ -146,7 +147,7 @@ router.get('/sync-status', async (req, res) => {
  * Syncs COMPLETED (default) Paychex periods into `paychex_pay_periods`.
  * Date bounds are normalized to full-day UTC without milliseconds.
  */
-router.post('/companies/:companyId/pay-periods/sync', async (req, res) => {
+router.post('/companies/:companyId/pay-periods/sync', requirePayrollLock, async (req, res) => {
   try {
     const { from, to, statuses } = req.body || {};
     const summary = await syncCompanyPayPeriods({
@@ -167,7 +168,7 @@ router.post('/companies/:companyId/pay-periods/sync', async (req, res) => {
  * Match operational pay_periods to paychex_pay_periods by end_date (±1 day)
  * and update pay_periods.paychex_period_id when safe.
  */
-router.post('/companies/:companyId/pay-periods/reconcile', async (req, res) => {
+router.post('/companies/:companyId/pay-periods/reconcile', requirePayrollLock, async (req, res) => {
   try {
     const summary = await reconcileLocalPayPeriodsToPaychex({
       companyId: req.params.companyId,

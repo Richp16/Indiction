@@ -6,6 +6,7 @@ import DailyEntry from './pages/DailyEntry';
 import SummaryPage from './pages/SummaryPage';
 import MyEntriesPage from './pages/MyEntriesPage';
 import PayrollPage from './pages/PayrollPage';
+import JobCostingPage from './pages/JobCostingPage';
 import ManageUsers from './pages/ManageUsers';
 import Settings from './pages/Settings';
 import CompanySettingsPage from './pages/CompanySettingsPage';
@@ -69,6 +70,14 @@ export default function App() {
         element={
           <ProtectedRoute requireAdmin>
             <PayrollPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/job-costing"
+        element={
+          <ProtectedRoute requireAdmin>
+            <JobCostingPage />
           </ProtectedRoute>
         }
       />

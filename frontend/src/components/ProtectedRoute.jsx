@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import SyncFailureBanner from './SyncFailureBanner';
+import EditLockBanner from './EditLockBanner';
 
 const SETTINGS_PATHS = [
   '/admin/job-sites',
@@ -9,6 +10,8 @@ const SETTINGS_PATHS = [
   '/admin/pay-rates',
   '/company-settings',
 ];
+
+const PAYROLL_PATHS = ['/payroll', '/job-costing'];
 
 function NavDropdown({ label, items, paths }) {
   const location = useLocation();
@@ -30,8 +33,19 @@ function NavDropdown({ label, items, paths }) {
   }, []);
 
   useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') setOpen(false);
+    }
+    if (!open) return undefined;
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open]);
+
+  useEffect(() => {
     setOpen(false);
   }, [location.pathname]);
+
+  if (!items.length) return null;
 
   return (
     <div ref={rootRef} className="nav-dropdown">
@@ -82,6 +96,17 @@ function SettingsDropdown() {
   );
 }
 
+function PayrollDropdown() {
+  const { paychexEnabled } = useAuth();
+  const items = [];
+  if (paychexEnabled !== false) {
+    items.push({ to: '/payroll', label: 'Paychex SPI' });
+  }
+  items.push({ to: '/job-costing', label: 'Job Costing' });
+
+  return <NavDropdown label="Payroll" paths={PAYROLL_PATHS} items={items} />;
+}
+
 function NavLink({ to, children }) {
   const location = useLocation();
   const active =
@@ -103,7 +128,7 @@ function AppLayout({ children }) {
           <NavLink to="/daily-entry">Daily Entry</NavLink>
           <NavLink to="/my-entries">My Entries</NavLink>
           {isAdmin && <NavLink to="/summary">Summary</NavLink>}
-          {isAdmin && <NavLink to="/payroll">Payroll</NavLink>}
+          {isAdmin && <PayrollDropdown />}
           {isAdmin && (
             <>
               <NavLink to="/certified-payroll">Certified Payroll</NavLink>
@@ -121,6 +146,7 @@ function AppLayout({ children }) {
         </div>
       </nav>
       <SyncFailureBanner />
+      <EditLockBanner />
       <main className="app-main-content">{children}</main>
     </div>
   );

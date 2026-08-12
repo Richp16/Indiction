@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
+const { requireAdminConfigLock } = require('../middleware/editLock');
 
 const router = express.Router();
 
@@ -24,7 +25,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireAdminConfigLock, async (req, res) => {
   try {
     const { email, password, name, role: bodyRole } = req.body;
     const role = bodyRole || 'superintendent';
@@ -60,7 +61,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAdminConfigLock, async (req, res) => {
   try {
     if (req.params.id === req.user.userId) {
       return res.status(400).json({ message: 'You cannot delete your own account' });
@@ -90,7 +91,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-router.patch('/:id/password', async (req, res) => {
+router.patch('/:id/password', requireAdminConfigLock, async (req, res) => {
   try {
     const { newPassword } = req.body;
 

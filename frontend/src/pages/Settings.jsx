@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { PAYROLL_SCOPE, useEditScope } from '../context/EditLockContext';
 import { apiGet, apiPost } from '../api/client';
 import PaychexPayPeriodsPanel from '../components/PaychexPayPeriodsPanel';
 
 export default function Settings() {
   const { token } = useAuth();
+  useEditScope(PAYROLL_SCOPE);
   const [syncResults, setSyncResults] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [syncing, setSyncing] = useState(false);

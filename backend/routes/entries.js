@@ -8,6 +8,10 @@ const {
   DailyEntryError,
 } = require('../services/dailyEntryService');
 const { getWeekBounds } = require('../services/entryPayCode');
+const {
+  requireDailyEntriesLockFromBody,
+  requireDailyEntriesLockFromId,
+} = require('../middleware/editLock');
 
 const router = express.Router();
 
@@ -51,7 +55,7 @@ function mapDailyRowToLegacyShape(row) {
   };
 }
 
-router.post('/', async (req, res) => {
+router.post('/', requireDailyEntriesLockFromBody, async (req, res) => {
   try {
     const {
       workerId,
@@ -189,18 +193,33 @@ async function updateEntry(req, res) {
   }
 }
 
-router.put('/:id', requireRole('system_admin', 'payroll_admin'), updateEntry);
-router.patch('/:id', requireRole('system_admin', 'payroll_admin'), updateEntry);
+router.put(
+  '/:id',
+  requireRole('system_admin', 'payroll_admin'),
+  requireDailyEntriesLockFromId,
+  updateEntry
+);
+router.patch(
+  '/:id',
+  requireRole('system_admin', 'payroll_admin'),
+  requireDailyEntriesLockFromId,
+  updateEntry
+);
 
-router.delete('/:id', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
-  try {
-    await deleteDailyEntry(req.params.id);
-    res.json({ message: 'Entry deleted' });
-  } catch (error) {
-    const status = error instanceof DailyEntryError ? error.statusCode : 500;
-    res.status(status).json({ message: error.message });
+router.delete(
+  '/:id',
+  requireRole('system_admin', 'payroll_admin'),
+  requireDailyEntriesLockFromId,
+  async (req, res) => {
+    try {
+      await deleteDailyEntry(req.params.id);
+      res.json({ message: 'Entry deleted' });
+    } catch (error) {
+      const status = error instanceof DailyEntryError ? error.statusCode : 500;
+      res.status(status).json({ message: error.message });
+    }
   }
-});
+);
 
 module.exports = router;
 module.exports.assertEntryDateAllowedForRole = assertEntryDateAllowedForRole;

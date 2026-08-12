@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { PAYROLL_SCOPE, useEditScope } from '../context/EditLockContext';
 import { apiGet, apiPost } from '../api/client';
 import PayrollExport from '../components/PayrollExport';
 
 export default function Submit() {
   const { token } = useAuth();
+  useEditScope(PAYROLL_SCOPE);
   const [period, setPeriod] = useState(null);
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { ADMIN_CONFIG_SCOPE, useEditScope } from '../context/EditLockContext';
 import { apiGet, apiPatch } from '../api/client';
 
 const initialState = {
@@ -13,6 +14,7 @@ const initialState = {
 
 export default function CompanySettingsPage() {
   const { token } = useAuth();
+  useEditScope(ADMIN_CONFIG_SCOPE);
   const [form, setForm] = useState(initialState);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');

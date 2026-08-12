@@ -1,6 +1,7 @@
 const express = require('express');
 const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
+const { requireAdminConfigLock } = require('../middleware/editLock');
 
 const router = express.Router();
 
@@ -17,7 +18,7 @@ router.get('/', async (_req, res) => {
   }
 });
 
-router.post('/', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
+router.post('/', requireRole('system_admin', 'payroll_admin'), requireAdminConfigLock, async (req, res) => {
   try {
     const { name } = req.body;
     if (!name || !String(name).trim()) {
@@ -38,7 +39,7 @@ router.post('/', requireRole('system_admin', 'payroll_admin'), async (req, res) 
   }
 });
 
-router.delete('/:id', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
+router.delete('/:id', requireRole('system_admin', 'payroll_admin'), requireAdminConfigLock, async (req, res) => {
   try {
     const result = await query(
       'DELETE FROM labor_classifications WHERE id = $1 RETURNING id',

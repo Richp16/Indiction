@@ -42,6 +42,8 @@ app.use('/api/auth', authRoutes);
 
 app.use(auth);
 
+app.use('/api/edit-locks', require('./routes/editLocks'));
+app.use('/api/account', require('./routes/account'));
 app.use('/api/workers', workersRoutes);
 app.use('/api/job-sites', jobSitesRoutes);
 app.use('/api/entries', entriesRoutes);
@@ -55,6 +57,7 @@ app.get(
   summaryRoutes.exportMyEntriesCsv
 );
 app.use('/api/payroll', require('./routes/payroll'));
+app.use('/api/job-costing', require('./routes/jobCosting'));
 app.use('/api/submit', submitRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/labor-classifications', laborClassificationsRoutes);

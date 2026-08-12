@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { dailyEntriesScope, useEditScope } from '../context/EditLockContext';
 import { apiGet, apiPost } from '../api/client';
 
 const BASE_PAY_CODES = [
@@ -51,6 +52,7 @@ export default function DailyEntry() {
   const [period, setPeriod] = useState(null);
   const [jobSites, setJobSites] = useState([]);
   const [selectedJobSiteId, setSelectedJobSiteId] = useState('');
+  const editLock = useEditScope(dailyEntriesScope(selectedJobSiteId));
   const [searchText, setSearchText] = useState('');
   const [workerResults, setWorkerResults] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState(null);
@@ -238,6 +240,12 @@ export default function DailyEntry() {
     setError('');
     setSavedMessage('');
 
+    if (editLock.readOnly) {
+      setError(
+        `Read-only: ${editLock.holderName || 'another user'} currently has edit rights for this job site.`
+      );
+      return;
+    }
     if (!selectedWorker || !selectedPayCode) {
       setError('Please complete all required fields');
       return;
@@ -580,8 +588,8 @@ export default function DailyEntry() {
           </p>
         )}
 
-        <button type="submit" disabled={saving}>
-          {saving ? 'Saving…' : 'Save Entry'}
+        <button type="submit" disabled={saving || editLock.readOnly}>
+          {saving ? 'Saving…' : editLock.readOnly ? 'Read-only' : 'Save Entry'}
         </button>
       </form>
     </div>

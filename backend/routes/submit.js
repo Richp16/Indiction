@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
 const { submitPayroll, validatePayroll } = require('../services/paychexSubmit');
+const { requirePayrollLock } = require('../middleware/editLock');
 
 const router = express.Router();
 
@@ -21,7 +22,7 @@ router.post('/validate', async (req, res) => {
   }
 });
 
-router.post('/confirm', async (req, res) => {
+router.post('/confirm', requirePayrollLock, async (req, res) => {
   try {
     const { payPeriodId } = req.body;
     if (!payPeriodId) {

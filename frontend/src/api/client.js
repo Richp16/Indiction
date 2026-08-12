@@ -18,6 +18,7 @@ async function parseResponse(res) {
     const error = new Error(message);
     error.status = res.status;
     error.code = data.code;
+    error.lock = data.lock || null;
     error.debug = data.debug || null;
     throw error;
   }

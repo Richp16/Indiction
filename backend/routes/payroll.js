@@ -15,6 +15,7 @@ const {
 } = require('../services/payrollPayPeriods');
 const { upsertAdjustments } = require('../services/payrollAdjustments');
 const { query } = require('../db');
+const { requirePayrollLock } = require('../middleware/editLock');
 
 const router = express.Router();
 
@@ -48,6 +49,7 @@ router.get('/pay-periods', requireAuth, async (_req, res) => {
 router.post(
   '/sync-pay-periods',
   requireRole('payroll_admin', 'system_admin'),
+  requirePayrollLock,
   async (_req, res) => {
     try {
       const { syncPayPeriods } = require('../services/paychexSync');
@@ -174,6 +176,7 @@ router.get('/:payPeriodId/preview', requireAuth, async (req, res) => {
 router.put(
   '/:payPeriodId/adjustments',
   requireRole('payroll_admin', 'system_admin'),
+  requirePayrollLock,
   async (req, res) => {
     try {
       const { payPeriodId } = req.params;
@@ -241,7 +244,7 @@ router.put(
   }
 );
 
-router.delete('/:payPeriodId/row', requireRole('payroll_admin', 'system_admin'), async (req, res) => {
+router.delete('/:payPeriodId/row', requireRole('payroll_admin', 'system_admin'), requirePayrollLock, async (req, res) => {
   try {
     const { payPeriodId } = req.params;
     const { workerDbId } = req.body;
