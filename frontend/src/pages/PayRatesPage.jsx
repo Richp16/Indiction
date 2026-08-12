@@ -108,10 +108,6 @@ export default function PayRatesPage() {
   return (
     <div>
       <h1>Pay Rates</h1>
-      <p style={{ color: '#555', maxWidth: 720 }}>
-        Assign a job-site-specific pay rate for a worker. Everywhere else they keep their
-        default rate. Overtime is always 1.5× the rate that applies at that site.
-      </p>
 
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
       {successMessage && <p style={{ color: '#15803d' }}>{successMessage}</p>}

@@ -339,21 +339,6 @@ export default function DailyEntry() {
       {period && (
         <p>
           Pay period: {period.start_date} – {period.end_date}
-          {isAdmin ? ' (resolved from work date)' : ''}
-        </p>
-      )}
-
-      {!isAdmin && (
-        <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
-          Work dates are limited to the current week ({currentWeekBounds.sunday} –{' '}
-          {currentWeekBounds.saturday}).
-        </p>
-      )}
-
-      {isAdmin && (
-        <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
-          Admins can enter time for any date that falls in a defined pay period,
-          including past periods.
         </p>
       )}
 

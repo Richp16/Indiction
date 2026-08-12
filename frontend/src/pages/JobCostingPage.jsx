@@ -282,10 +282,6 @@ export default function JobCostingPage() {
   return (
     <div>
       <h1>Job Costing</h1>
-      <p style={{ color: '#555', maxWidth: 720 }}>
-        Hours and rates for one job site and pay period, broken out by pay component
-        the same way as Paychex SPI (Hourly, Overtime, Reimbursement).
-      </p>
 
       <PayPeriodSelector
         periods={periods}
@@ -355,10 +351,6 @@ export default function JobCostingPage() {
                   {formatCurrency(summary.totalEarnings)}
                 </strong>
               </div>
-              <p style={statSubtextStyle}>
-                Regular includes straight-time and PTO. Overtime includes OT and
-                doubletime. Excludes reimbursements.
-              </p>
             </div>
             <div style={statCardStyle}>
               <h2 style={statTitleStyle}>Total Reimbursements</h2>
@@ -372,16 +364,10 @@ export default function JobCostingPage() {
             <div style={statCardStyle}>
               <h2 style={statTitleStyle}>Employer Liability Cost</h2>
               <p style={statValueStyle}>{formatCurrency(summary.employerLiability)}</p>
-              <p style={statSubtextStyle}>
-                Estimated employer liabilities at 8% of total earnings.
-              </p>
             </div>
             <div style={statCardStyle} className="summary-kpi-cash">
               <h2 style={statTitleStyle}>Cash Requirements</h2>
               <p style={statValueStyle}>{formatCurrency(summary.cashRequirements)}</p>
-              <p style={statSubtextStyle}>
-                Total Gross Pay + Total Reimbursements + Employer Liability Cost.
-              </p>
             </div>
           </section>
 

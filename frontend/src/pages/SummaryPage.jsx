@@ -183,10 +183,6 @@ export default function SummaryPage() {
             <span>Total Gross Pay</span>
             <strong style={statValueStyle}>{formatCurrency(totalEarnings)}</strong>
           </div>
-          <p style={statSubtextStyle}>
-            Regular includes straight-time and PTO. Overtime includes OT and doubletime.
-            Excludes reimbursements.
-          </p>
         </div>
         <div style={statCardStyle}>
           <h2 style={statTitleStyle}>Total Reimbursements</h2>
@@ -200,16 +196,10 @@ export default function SummaryPage() {
         <div style={statCardStyle}>
           <h2 style={statTitleStyle}>Employer Liability Cost</h2>
           <p style={statValueStyle}>{formatCurrency(employerLiability)}</p>
-          <p style={statSubtextStyle}>
-            Estimated employer liabilities at 8% of total earnings.
-          </p>
         </div>
         <div style={statCardStyle} className="summary-kpi-cash">
           <h2 style={statTitleStyle}>Cash Requirements</h2>
           <p style={statValueStyle}>{formatCurrency(cashRequirements)}</p>
-          <p style={statSubtextStyle}>
-            Total Gross Pay + Total Reimbursements + Employer Liability Cost.
-          </p>
         </div>
       </section>
     </div>

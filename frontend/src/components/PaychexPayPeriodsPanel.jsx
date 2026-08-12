@@ -150,12 +150,11 @@ export default function PaychexPayPeriodsPanel({ token }) {
   return (
     <section style={{ marginBottom: '2rem' }}>
       <h2>Paychex Pay Periods</h2>
-      <p style={{ color: '#555', maxWidth: 640 }}>
-        Loads synced rows from <code>paychex_pay_periods</code> (COMPLETED
-        catalog). Discover pay periods from Paychex, store them locally, then
-        fetch checks only with a validated <code>payPeriodId</code>. Company:{' '}
-        <code>{companyId || '—'}</code>
-      </p>
+      {companyId && (
+        <p style={{ color: '#555', marginBottom: '0.75rem' }}>
+          Company: <code>{companyId}</code>
+        </p>
+      )}
 
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
       {message && <p style={{ color: 'green' }}>{message}</p>}

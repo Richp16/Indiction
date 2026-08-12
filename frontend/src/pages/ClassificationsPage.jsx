@@ -112,10 +112,6 @@ export default function ClassificationsPage() {
       </table>
 
       <h2 style={{ marginTop: '2rem' }}>Worker Classifications</h2>
-      <p style={{ color: '#555', marginBottom: '1rem' }}>
-        Assign each worker&apos;s primary labor classification. Certified Payroll reads this value
-        automatically.
-      </p>
       <table>
         <thead>
           <tr>

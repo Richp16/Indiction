@@ -234,14 +234,6 @@ export default function PayrollExport({ payPeriodId, token }) {
     <section style={{ marginTop: '2rem' }}>
       <h2>Payroll Export</h2>
 
-      <p style={{ color: '#444', maxWidth: 720 }}>
-        Paychex import format: one row per pay component (Hourly by effective rate,
-        Overtime, Reimbursement from Daily Entry). Check Seq Number is shared across
-        all rows for the same worker. Review below, then download the CSV for SPI /
-        Paychex Flex import.
-      </p>
-
-
       {loading && <p>Loading payroll export…</p>}
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
       {successMessage && <p style={{ color: '#15803d' }}>{successMessage}</p>}
