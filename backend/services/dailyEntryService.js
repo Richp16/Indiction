@@ -516,7 +516,21 @@ async function recalcAggregatedTimeEntry(client, {
   return result.rows[0];
 }
 
-async function updateDailyEntry(dailyEntryId, { hours, reimbursementAmount }) {
+function wrapDailyEntryError(error) {
+  if (error instanceof DailyEntryError) return error;
+  if (error.code === '23505') {
+    return new DailyEntryError(
+      'An entry already exists for this worker, job site, pay code, and date.',
+      409
+    );
+  }
+  if (error.statusCode) {
+    return new DailyEntryError(error.message, error.statusCode);
+  }
+  return error;
+}
+
+async function updateDailyEntry(dailyEntryId, { hours, reimbursementAmount, payCode }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -538,26 +552,109 @@ async function updateDailyEntry(dailyEntryId, { hours, reimbursementAmount }) {
       throw new DailyEntryError('Pay period is not open for edits', 400);
     }
 
-    const newHours = hours != null ? Number(hours) : Number(entry.hours_worked);
-    const newReimbursement =
-      reimbursementAmount != null ? Number(reimbursementAmount) : Number(entry.reimbursement_amount);
-    const hourSplit = splitHoursByPayCode(entry.pay_code, newHours);
+    const nextPayCode =
+      payCode != null && String(payCode).trim() !== ''
+        ? String(payCode).trim()
+        : entry.pay_code;
+    const hoursProvided = hours != null && hours !== '';
+    const reimbProvided = reimbursementAmount != null && reimbursementAmount !== '';
+    const requestedHours = hoursProvided ? Number(hours) : Number(entry.hours_worked);
+    const requestedReimb = reimbProvided
+      ? Number(reimbursementAmount)
+      : Number(entry.reimbursement_amount);
 
+    let nextHours = requestedHours;
+    let nextReimbursement = requestedReimb;
+    let nextComponentName = entry.component_name;
+    let nextComponentRate = entry.component_rate;
+    let nextStoredPayCode = nextPayCode;
+
+    if (isHoursPayCode(nextPayCode)) {
+      const resolved = await resolveEntryPayFields({
+        workerId: entry.worker_id,
+        jobSiteId: entry.job_site_id,
+        payCode: nextPayCode,
+        hours: requestedHours,
+        reimbursementAmount: 0,
+        allowNegative: true,
+      });
+      nextStoredPayCode = resolved.paychexComponentId;
+      nextHours = resolved.hours;
+      nextReimbursement = 0;
+      nextComponentName = resolved.componentName;
+      nextComponentRate = resolved.componentRate;
+    } else if (nextPayCode === 'DT') {
+      if (!Number.isFinite(requestedHours) || requestedHours === 0) {
+        throw new DailyEntryError('Hours must be a non-zero value', 400);
+      }
+      nextHours = requestedHours;
+      nextReimbursement = 0;
+      nextStoredPayCode = 'DT';
+    } else {
+      const resolved = await resolveEntryPayFields({
+        workerId: entry.worker_id,
+        jobSiteId: entry.job_site_id,
+        payCode: nextPayCode,
+        hours: 0,
+        reimbursementAmount: requestedReimb,
+        allowNegative: true,
+      });
+      nextStoredPayCode = resolved.paychexComponentId;
+      nextHours = 0;
+      nextReimbursement = resolved.reimbursementAmount;
+      nextComponentName = resolved.componentName;
+      nextComponentRate = resolved.componentRate;
+    }
+
+    const payCodeChanged = nextStoredPayCode !== entry.pay_code;
+    if (payCodeChanged) {
+      const dup = await client.query(
+        `SELECT id FROM daily_time_entries
+         WHERE worker_id = $1
+           AND job_site_id IS NOT DISTINCT FROM $2
+           AND date_worked = $3
+           AND paychex_component_id = $4
+           AND id <> $5`,
+        [
+          entry.worker_id,
+          entry.job_site_id,
+          entry.date_worked,
+          nextStoredPayCode,
+          dailyEntryId,
+        ]
+      );
+      if (dup.rows.length > 0) {
+        throw new DailyEntryError(
+          'An entry already exists for this worker, job site, pay code, and date.',
+          409
+        );
+      }
+    }
+
+    const hourSplit = splitHoursByPayCode(nextStoredPayCode, nextHours);
     const updated = await client.query(
       `UPDATE daily_time_entries
        SET hours_worked = $1,
            regular_hours = $2,
            overtime_hours = $3,
            doubletime_hours = $4,
-           reimbursement_amount = $5
-       WHERE id = $6
+           reimbursement_amount = $5,
+           pay_code = $6,
+           paychex_component_id = $7,
+           component_name = $8,
+           component_rate = $9
+       WHERE id = $10
        RETURNING *`,
       [
-        newHours,
+        nextHours,
         hourSplit.regular_hours,
         hourSplit.overtime_hours,
         hourSplit.doubletime_hours,
-        newReimbursement,
+        nextReimbursement,
+        nextStoredPayCode,
+        nextStoredPayCode,
+        nextComponentName,
+        nextComponentRate,
         dailyEntryId,
       ]
     );
@@ -569,14 +666,83 @@ async function updateDailyEntry(dailyEntryId, { hours, reimbursementAmount }) {
       payCode: entry.pay_code,
     });
 
+    if (payCodeChanged) {
+      await recalcAggregatedTimeEntry(client, {
+        workerId: entry.worker_id,
+        jobSiteId: entry.job_site_id,
+        payPeriodId: entry.pay_period_id,
+        payCode: nextStoredPayCode,
+      });
+    }
+
     await client.query('COMMIT');
     return updated.rows[0];
   } catch (error) {
     await client.query('ROLLBACK');
-    throw error;
+    throw wrapDailyEntryError(error);
   } finally {
     client.release();
   }
+}
+
+async function createBulkDailyEntries({
+  workerIds,
+  jobSiteId,
+  payPeriodId,
+  payCode,
+  paychexComponentId,
+  dateWorked,
+  hours,
+  reimbursementAmount,
+  enteredBy,
+  allowNegative = false,
+}) {
+  const uniqueIds = [...new Set((workerIds || []).filter(Boolean).map(String))];
+  if (uniqueIds.length === 0) {
+    throw new DailyEntryError('Select at least one worker.', 400);
+  }
+
+  const results = [];
+  for (const workerId of uniqueIds) {
+    try {
+      const result = await createDailyEntry({
+        workerId,
+        jobSiteId,
+        payPeriodId,
+        payCode,
+        paychexComponentId,
+        dateWorked,
+        hours,
+        reimbursementAmount,
+        enteredBy,
+        allowNegative,
+      });
+      results.push({
+        workerId,
+        ok: true,
+        status: result.correction ? 200 : 201,
+        split: Boolean(result.split),
+        correction: Boolean(result.correction),
+        deleted: Boolean(result.deleted),
+        message: result.message || 'Entry saved successfully.',
+        entry: result.daily || result.entries?.[0]?.daily || null,
+      });
+    } catch (error) {
+      const wrapped = wrapDailyEntryError(error);
+      results.push({
+        workerId,
+        ok: false,
+        status: wrapped.statusCode || 500,
+        message: wrapped.message || 'Failed to create entry',
+      });
+    }
+  }
+
+  return {
+    results,
+    createdCount: results.filter((row) => row.ok).length,
+    failedCount: results.filter((row) => !row.ok).length,
+  };
 }
 
 async function deleteDailyEntry(dailyEntryId) {
@@ -623,6 +789,7 @@ async function deleteDailyEntry(dailyEntryId) {
 module.exports = {
   DailyEntryError,
   createDailyEntry,
+  createBulkDailyEntries,
   updateDailyEntry,
   deleteDailyEntry,
   recalcAggregatedTimeEntry,

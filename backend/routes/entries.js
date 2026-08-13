@@ -3,6 +3,7 @@ const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
 const {
   createDailyEntry,
+  createBulkDailyEntries,
   updateDailyEntry,
   deleteDailyEntry,
   DailyEntryError,
@@ -54,45 +55,19 @@ function mapDailyRowToLegacyShape(row) {
 
 router.post('/', requireGlobalEditLock, async (req, res) => {
   try {
-    const {
-      workerId,
-      jobSiteId,
-      payPeriodId,
-      paychexComponentId,
-      payCode,
-      entryDate,
-      entry_date,
-      hours,
-      reimbursementAmount,
-    } = req.body;
-
-    const dateWorked = entry_date || entryDate;
-    assertEntryDateAllowedForRole(req.user?.role, dateWorked);
-
-    const allowNegative = ADMIN_ROLES.includes(req.user?.role);
-    const hoursNum = hours != null && hours !== '' ? Number(hours) : 0;
-    const reimbNum =
-      reimbursementAmount != null && reimbursementAmount !== ''
-        ? Number(reimbursementAmount)
-        : 0;
-
-    if (!allowNegative && (hoursNum < 0 || reimbNum < 0)) {
-      return res.status(403).json({
-        message: 'Only admins can enter negative hours or reimbursement corrections.',
-      });
-    }
+    const parsed = parseCreateEntryBody(req.body, req.user?.role);
 
     const result = await createDailyEntry({
-      workerId,
-      jobSiteId,
-      payPeriodId,
-      payCode,
-      paychexComponentId,
-      dateWorked,
-      hours,
-      reimbursementAmount,
+      workerId: parsed.workerId,
+      jobSiteId: parsed.jobSiteId,
+      payPeriodId: parsed.payPeriodId,
+      payCode: parsed.payCode,
+      paychexComponentId: parsed.paychexComponentId,
+      dateWorked: parsed.dateWorked,
+      hours: parsed.hours,
+      reimbursementAmount: parsed.reimbursementAmount,
       enteredBy: req.user.userId,
-      allowNegative,
+      allowNegative: parsed.allowNegative,
     });
 
     if (result.split) {
@@ -119,6 +94,82 @@ router.post('/', requireGlobalEditLock, async (req, res) => {
           'An entry already exists for this worker, job site, pay code, and date.',
       });
     }
+    const status = error.statusCode || 500;
+    return res.status(status).json({ message: error.message });
+  }
+});
+
+function parseCreateEntryBody(body, role) {
+  const {
+    workerId,
+    workerIds,
+    jobSiteId,
+    payPeriodId,
+    paychexComponentId,
+    payCode,
+    entryDate,
+    entry_date,
+    hours,
+    reimbursementAmount,
+  } = body;
+
+  const dateWorked = entry_date || entryDate;
+  assertEntryDateAllowedForRole(role, dateWorked);
+
+  const allowNegative = ADMIN_ROLES.includes(role);
+  const hoursNum = hours != null && hours !== '' ? Number(hours) : 0;
+  const reimbNum =
+    reimbursementAmount != null && reimbursementAmount !== ''
+      ? Number(reimbursementAmount)
+      : 0;
+
+  if (!allowNegative && (hoursNum < 0 || reimbNum < 0)) {
+    const error = new Error(
+      'Only admins can enter negative hours or reimbursement corrections.'
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return {
+    workerId,
+    workerIds,
+    jobSiteId,
+    payPeriodId,
+    paychexComponentId,
+    payCode,
+    dateWorked,
+    hours,
+    reimbursementAmount,
+    allowNegative,
+  };
+}
+
+router.post('/bulk', requireGlobalEditLock, async (req, res) => {
+  try {
+    const parsed = parseCreateEntryBody(req.body, req.user?.role);
+    const workerIds = Array.isArray(parsed.workerIds) ? parsed.workerIds : [];
+    const result = await createBulkDailyEntries({
+      workerIds,
+      jobSiteId: parsed.jobSiteId,
+      payPeriodId: parsed.payPeriodId,
+      payCode: parsed.payCode,
+      paychexComponentId: parsed.paychexComponentId,
+      dateWorked: parsed.dateWorked,
+      hours: parsed.hours,
+      reimbursementAmount: parsed.reimbursementAmount,
+      enteredBy: req.user.userId,
+      allowNegative: parsed.allowNegative,
+    });
+
+    const status = result.failedCount === 0 ? 201 : 200;
+    res.status(status).json({
+      success: result.failedCount === 0,
+      createdCount: result.createdCount,
+      failedCount: result.failedCount,
+      results: result.results,
+    });
+  } catch (error) {
     const status = error.statusCode || 500;
     return res.status(status).json({ message: error.message });
   }
@@ -182,10 +233,11 @@ async function updateEntry(req, res) {
     const updated = await updateDailyEntry(req.params.id, {
       hours: req.body.hours,
       reimbursementAmount: req.body.reimbursementAmount,
+      payCode: req.body.payCode,
     });
     res.json(mapDailyRowToLegacyShape(updated));
   } catch (error) {
-    const status = error instanceof DailyEntryError ? error.statusCode : 500;
+    const status = error instanceof DailyEntryError ? error.statusCode : error.statusCode || 500;
     res.status(status).json({ message: error.message });
   }
 }

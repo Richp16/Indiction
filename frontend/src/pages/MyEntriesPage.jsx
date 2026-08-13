@@ -2,9 +2,16 @@ import { useState, useEffect, useMemo, Fragment } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useEditLock } from '../context/EditLockContext';
-import { apiGet, apiDelete, API_BASE_URL } from '../api/client';
+import { apiGet, apiDelete, apiPatch, API_BASE_URL } from '../api/client';
 import PayPeriodSelector from '../components/PayPeriodSelector';
 import { downloadFile } from '../utils/downloadFile';
+
+const BASE_EDIT_PAY_CODES = [
+  { id: 'REGULAR', label: 'Hours' },
+  { id: 'REIMBURSE', label: 'Reimbursement' },
+];
+
+const HOURS_PAY_CODES = new Set(['REGULAR', 'OT', 'DT', 'PTO']);
 
 function formatWorkerName(entry) {
   const name = `${entry.worker_first_name || ''} ${entry.worker_last_name || ''}`.trim();
@@ -23,6 +30,10 @@ function isReimbursementEntry(entry) {
     name.includes('reimburse') ||
     (Number(entry.reimbursement_amount) !== 0 && Number(entry.hours) === 0)
   );
+}
+
+function isHoursPayCode(code) {
+  return HOURS_PAY_CODES.has(String(code || '').toUpperCase());
 }
 
 function formatHoursValue(entry) {
@@ -52,6 +63,22 @@ function formatDateHeading(dateStr) {
   });
 }
 
+function formatDateWorked(dateStr) {
+  const raw = String(dateStr || '').split('T')[0];
+  const [year, month, day] = raw.split('-');
+  if (!year || !month || !day) return '—';
+  return `${month}/${day}/${year}`;
+}
+
+function payCodeOptionsForEntry(entry) {
+  const options = [...BASE_EDIT_PAY_CODES];
+  const current = String(entry.pay_code || '').trim();
+  if (current && !options.some((option) => option.id === current)) {
+    options.push({ id: current, label: formatPayCodeLabel(entry) });
+  }
+  return options;
+}
+
 function groupEntriesByDate(entries) {
   const groups = [];
   const byDate = new Map();
@@ -77,6 +104,10 @@ function EntriesSkeleton() {
   );
 }
 
+function emptyEditDraft() {
+  return { hours: '', payCode: '', reimbursement: '' };
+}
+
 export default function MyEntriesPage() {
   const { token, isAdmin } = useAuth();
   const { readOnly, editingUser } = useEditLock();
@@ -90,6 +121,9 @@ export default function MyEntriesPage() {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState(null);
   const [deletingId, setDeletingId] = useState('');
+  const [savingId, setSavingId] = useState('');
+  const [editingId, setEditingId] = useState('');
+  const [editDraft, setEditDraft] = useState(emptyEditDraft);
   const [entriesRefresh, setEntriesRefresh] = useState(0);
 
   const selectedPeriod = useMemo(
@@ -98,7 +132,9 @@ export default function MyEntriesPage() {
   );
 
   const groupedEntries = useMemo(() => groupEntriesByDate(entries), [entries]);
-  const colSpan = isAdmin ? 6 : 5;
+  const colSpan = isAdmin ? 7 : 6;
+  const canMutate = isAdmin && !readOnly;
+  const editPayCodeIsHours = isHoursPayCode(editDraft.payCode);
 
   useEffect(() => {
     async function loadPeriods() {
@@ -159,14 +195,88 @@ export default function MyEntriesPage() {
     };
   }, [token, selectedPeriod, entriesRefresh]);
 
-  async function handleDeleteEntry(entry) {
-    if (!isAdmin || !entry?.id) return;
-    if (readOnly) {
-      setError(
-        `Read-only: ${editingUser?.name || 'another user'} currently has edit rights.`
-      );
+  function startEdit(entry) {
+    if (!canMutate) return;
+    setError('');
+    setEditingId(entry.id);
+    setEditDraft({
+      hours: entry.hours != null && entry.hours !== '' ? String(entry.hours) : '',
+      payCode: entry.pay_code || 'REGULAR',
+      reimbursement:
+        entry.reimbursement_amount != null && entry.reimbursement_amount !== ''
+          ? String(entry.reimbursement_amount)
+          : '',
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId('');
+    setEditDraft(emptyEditDraft());
+    setSavingId('');
+  }
+
+  async function saveEdit(entry) {
+    if (!canMutate || !entry?.id) return;
+    setError('');
+
+    const hoursValue = Number(editDraft.hours);
+    const reimbValue = Number(editDraft.reimbursement);
+    const nextIsHours = isHoursPayCode(editDraft.payCode);
+
+    if (!editDraft.payCode) {
+      setError('Pay code is required');
       return;
     }
+    if (nextIsHours) {
+      if (!editDraft.hours || hoursValue === 0 || Number.isNaN(hoursValue)) {
+        setError('Hours must be a non-zero value');
+        return;
+      }
+    } else if (
+      !editDraft.reimbursement ||
+      reimbValue === 0 ||
+      Number.isNaN(reimbValue)
+    ) {
+      setError('Reimbursement amount must be a non-zero value');
+      return;
+    }
+
+    setSavingId(entry.id);
+    try {
+      const updated = await apiPatch(
+        `/api/entries/${entry.id}`,
+        {
+          payCode: editDraft.payCode,
+          hours: nextIsHours ? hoursValue : 0,
+          reimbursementAmount: nextIsHours ? 0 : reimbValue,
+        },
+        token
+      );
+      setEntries((prev) =>
+        prev.map((row) =>
+          row.id === entry.id
+            ? {
+                ...row,
+                ...updated,
+                hours: updated.hours ?? updated.hours_worked,
+                entry_date: updated.entry_date || updated.date_worked || row.entry_date,
+                worker_first_name: row.worker_first_name,
+                worker_last_name: row.worker_last_name,
+                job_site_name: row.job_site_name,
+              }
+            : row
+        )
+      );
+      cancelEdit();
+    } catch (err) {
+      setError(err.message || 'Failed to update entry');
+    } finally {
+      setSavingId('');
+    }
+  }
+
+  async function handleDeleteEntry(entry) {
+    if (!canMutate || !entry?.id) return;
     const worker = formatWorkerName(entry);
     const dateLabel = formatDateHeading(entry.entry_date);
     if (
@@ -181,6 +291,7 @@ export default function MyEntriesPage() {
     try {
       await apiDelete(`/api/entries/${entry.id}`, token);
       setEntries((prev) => prev.filter((row) => row.id !== entry.id));
+      if (editingId === entry.id) cancelEdit();
     } catch (err) {
       setError(err.message || 'Failed to delete entry');
       setEntriesRefresh((n) => n + 1);
@@ -257,6 +368,11 @@ export default function MyEntriesPage() {
 
       {downloadError && <p className="alert alert-error">{downloadError}</p>}
       {error && <p className="alert alert-error">{error}</p>}
+      {isAdmin && readOnly && (
+        <p className="alert alert-error">
+          Read-only: {editingUser?.name || 'another user'} currently has edit rights.
+        </p>
+      )}
 
       {loading && <EntriesSkeleton />}
 
@@ -276,6 +392,7 @@ export default function MyEntriesPage() {
           <table className="entries-table">
             <thead>
               <tr>
+                <th>Date Worked</th>
                 <th>Worker</th>
                 <th>Job Site</th>
                 <th>Pay Code</th>
@@ -297,39 +414,122 @@ export default function MyEntriesPage() {
                       (Number.isFinite(hours) && hours < 0) ||
                       (Number.isFinite(reimb) && reimb < 0);
                     const reimburse = isReimbursementEntry(entry);
+                    const isEditing = editingId === entry.id;
                     return (
                       <tr key={entry.id}>
+                        <td>{formatDateWorked(entry.entry_date)}</td>
                         <td>{formatWorkerName(entry)}</td>
                         <td>{entry.job_site_name || '—'}</td>
                         <td>
-                          <span
-                            className={`pay-code-badge${reimburse ? ' is-reimburse' : ''}`}
-                          >
-                            {formatPayCodeLabel(entry)}
-                          </span>
+                          {isEditing ? (
+                            <select
+                              value={editDraft.payCode}
+                              onChange={(e) =>
+                                setEditDraft((draft) => ({
+                                  ...draft,
+                                  payCode: e.target.value,
+                                }))
+                              }
+                            >
+                              {payCodeOptionsForEntry(entry).map((option) => (
+                                <option key={option.id} value={option.id}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span
+                              className={`pay-code-badge${reimburse ? ' is-reimburse' : ''}`}
+                            >
+                              {formatPayCodeLabel(entry)}
+                            </span>
+                          )}
                         </td>
                         <td className={`text-right${isCorrection && hours < 0 ? ' is-correction' : ''}`}>
-                          {formatHoursValue(entry)}
-                          {isCorrection && hours < 0 ? ' (correction)' : ''}
+                          {isEditing && editPayCodeIsHours ? (
+                            <input
+                              type="number"
+                              step="0.5"
+                              value={editDraft.hours}
+                              onChange={(e) =>
+                                setEditDraft((draft) => ({
+                                  ...draft,
+                                  hours: e.target.value,
+                                }))
+                              }
+                              style={{ maxWidth: 88, textAlign: 'right' }}
+                            />
+                          ) : (
+                            <>
+                              {formatHoursValue(entry)}
+                              {isCorrection && hours < 0 ? ' (correction)' : ''}
+                            </>
+                          )}
                         </td>
                         <td className={`text-right${isCorrection && reimb < 0 ? ' is-correction' : ''}`}>
-                          {formatReimbValue(entry)}
-                          {isCorrection && reimb < 0 ? ' (correction)' : ''}
+                          {isEditing && !editPayCodeIsHours ? (
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={editDraft.reimbursement}
+                              onChange={(e) =>
+                                setEditDraft((draft) => ({
+                                  ...draft,
+                                  reimbursement: e.target.value,
+                                }))
+                              }
+                              style={{ maxWidth: 96, textAlign: 'right' }}
+                            />
+                          ) : (
+                            <>
+                              {formatReimbValue(entry)}
+                              {isCorrection && reimb < 0 ? ' (correction)' : ''}
+                            </>
+                          )}
                         </td>
                         {isAdmin ? (
                           <td className="text-right">
-                            <button
-                              type="button"
-                              className="btn btn-secondary"
-                              disabled={deletingId === entry.id || readOnly}
-                              onClick={() => handleDeleteEntry(entry)}
-                            >
-                              {deletingId === entry.id
-                                ? 'Deleting…'
-                                : readOnly
-                                  ? 'Read-only'
-                                  : 'Delete'}
-                            </button>
+                            {canMutate && isEditing ? (
+                              <div className="inline-actions" style={{ justifyContent: 'flex-end' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-primary btn-sm"
+                                  disabled={savingId === entry.id}
+                                  onClick={() => saveEdit(entry)}
+                                >
+                                  {savingId === entry.id ? 'Saving…' : 'Save'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  disabled={savingId === entry.id}
+                                  onClick={cancelEdit}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : canMutate ? (
+                              <div className="inline-actions" style={{ justifyContent: 'flex-end' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  disabled={Boolean(editingId) || deletingId === entry.id}
+                                  onClick={() => startEdit(entry)}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  disabled={Boolean(editingId) || deletingId === entry.id}
+                                  onClick={() => handleDeleteEntry(entry)}
+                                >
+                                  {deletingId === entry.id ? 'Deleting…' : 'Delete'}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="form-hint">Read-only</span>
+                            )}
                           </td>
                         ) : null}
                       </tr>
