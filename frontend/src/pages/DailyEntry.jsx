@@ -467,10 +467,6 @@ export default function DailyEntry() {
         </p>
       )}
 
-      {selectedWorker?.standardRate != null && !bulkMode && (
-        <p>Worker hourly rate: ${Number(selectedWorker.standardRate).toFixed(2)}/hr</p>
-      )}
-
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
       {savedMessage && <p style={{ color: 'green' }}>{savedMessage}</p>}
 
