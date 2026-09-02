@@ -3,10 +3,12 @@ const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
 const { submitPayroll, validatePayroll } = require('../services/paychexSubmit');
 const { requireGlobalEditLock } = require('../middleware/editLock');
+const { requirePaychexEnabled } = require('../middleware/paychexGuard');
 
 const router = express.Router();
 
 router.use(requireRole('payroll_admin', 'system_admin'));
+router.use(requirePaychexEnabled);
 
 router.post('/validate', requireGlobalEditLock, async (req, res) => {
   try {

@@ -94,6 +94,39 @@ export async function apiDelete(path, token, body) {
   return parseResponse(res);
 }
 
+export async function apiPostForm(path, formData, token) {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+  return parseResponse(res);
+}
+
+export async function apiGetDownload(path, token) {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { message: text || 'Download failed' };
+    }
+    throw new Error(data.message || 'Download failed');
+  }
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const filenameMatch = disposition.match(/filename="([^"]+)"/);
+  const filename = filenameMatch ? filenameMatch[1] : 'download';
+  return { blob: await res.blob(), filename };
+}
+
 export async function apiPost(path, body, token) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',

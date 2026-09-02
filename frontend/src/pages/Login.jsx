@@ -43,7 +43,7 @@ export default function Login() {
 
   return (
     <div style={{ maxWidth: 400, margin: '4rem auto' }}>
-      <h1>Wellcraft Pay Login</h1>
+      <h1>Indiction Login</h1>
       {info && <p style={{ color: '#b45309' }}>{info}</p>}
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
       <form onSubmit={handleSubmit}>

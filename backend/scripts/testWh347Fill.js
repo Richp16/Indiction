@@ -48,7 +48,7 @@ async function main() {
   };
 
   const company = {
-    company_name: 'FieldPay Construction LLC d/b/a Midwest Heavy Civil Partners',
+    company_name: 'Indiction Construction LLC',
     company_address: '500 Industrial Pkwy Building C, Springfield, IL 62703',
     certifying_official_name: 'Jordan Alexander Lee-Montgomery',
     certifying_official_title: 'Senior Certified Payroll Administrator',

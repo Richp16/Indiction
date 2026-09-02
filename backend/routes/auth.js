@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { query } = require('../db');
 const { runAllSyncsGuarded } = require('../services/paychexSyncScheduler');
+const { isPaychexEnabled } = require('../middleware/paychexGuard');
 const {
   createSession,
   touchSession,
@@ -19,6 +20,8 @@ const LOGIN_SYNC_STALE_THRESHOLD_MS =
   Number(process.env.LOGIN_SYNC_STALE_THRESHOLD_MS) || 7 * 60 * 60 * 1000;
 
 async function triggerSyncIfStale() {
+  if (!(await isPaychexEnabled())) return;
+
   const { rows } = await query(
     `SELECT MAX(ran_at) AS last_sync FROM sync_log WHERE status = 'SUCCESS'`
   );

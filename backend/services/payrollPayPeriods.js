@@ -148,6 +148,206 @@ async function listPayrollPayPeriods({ limit = PAYROLL_PERIODS_LIMIT } = {}) {
   );
 }
 
+function computeBiweeklyWeekBounds(startDate, endDate) {
+  const start = String(startDate).split('T')[0];
+  const end = String(endDate).split('T')[0];
+  return {
+    week1Start: start,
+    week1End: addUtcDays(start, 6),
+    week2Start: addUtcDays(start, 7),
+    week2End: end,
+  };
+}
+
+function datesOverlap(startA, endA, startB, endB) {
+  return startA <= endB && startB <= endA;
+}
+
+async function listAllPayPeriods() {
+  const current = await findCurrentPayPeriod();
+  const result = await query(`${PAY_PERIOD_SELECT} ORDER BY start_date DESC`);
+  return result.rows.map((period) =>
+    mapPeriodOption(period, { isCurrent: Boolean(current && period.id === current.id) })
+  );
+}
+
+async function assertNoOverlappingPeriod(startDate, endDate, excludeId = null) {
+  const params = [startDate, endDate];
+  let sql = `
+    SELECT id, start_date::text AS start_date, end_date::text AS end_date
+    FROM pay_periods
+    WHERE start_date <= $2::date
+      AND end_date >= $1::date`;
+  if (excludeId) {
+    params.push(excludeId);
+    sql += ` AND id <> $${params.length}`;
+  }
+  sql += ' LIMIT 1';
+  const overlap = await query(sql, params);
+  if (overlap.rows.length > 0) {
+    const row = overlap.rows[0];
+    const error = new Error(
+      `Pay period overlaps existing period ${row.start_date} – ${row.end_date}`
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+}
+
+async function createManualPayPeriod({
+  startDate,
+  endDate,
+  submitByDate,
+  payDate,
+  status = 'OPEN',
+}) {
+  if (!isIsoDate(startDate) || !isIsoDate(endDate)) {
+    const error = new Error('startDate and endDate must be YYYY-MM-DD');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!isIsoDate(submitByDate) || !isIsoDate(payDate)) {
+    const error = new Error('submitByDate and payDate must be YYYY-MM-DD');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (endDate < startDate) {
+    const error = new Error('endDate must be on or after startDate');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await assertNoOverlappingPeriod(startDate, endDate);
+  const weeks = computeBiweeklyWeekBounds(startDate, endDate);
+
+  const result = await query(
+    `INSERT INTO pay_periods (
+       paychex_period_id,
+       start_date,
+       end_date,
+       submit_by_date,
+       pay_date,
+       status,
+       week1_start,
+       week1_end,
+       week2_start,
+       week2_end
+     ) VALUES (NULL, $1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING
+       id,
+       paychex_period_id,
+       start_date::text AS start_date,
+       end_date::text AS end_date,
+       submit_by_date::text AS submit_by_date,
+       pay_date::text AS pay_date,
+       status,
+       week1_start::text AS week1_start,
+       week1_end::text AS week1_end,
+       week2_start::text AS week2_start,
+       week2_end::text AS week2_end`,
+    [
+      startDate,
+      endDate,
+      submitByDate,
+      payDate,
+      status,
+      weeks.week1Start,
+      weeks.week1End,
+      weeks.week2Start,
+      weeks.week2End,
+    ]
+  );
+
+  return mapPeriodOption(result.rows[0]);
+}
+
+async function updateManualPayPeriod(id, updates = {}) {
+  const existing = await query(`${PAY_PERIOD_SELECT} WHERE id = $1`, [id]);
+  if (!existing.rows.length) {
+    const error = new Error('Pay period not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const current = existing.rows[0];
+  const startDate = updates.startDate || current.start_date;
+  const endDate = updates.endDate || current.end_date;
+  const submitByDate = updates.submitByDate || current.submit_by_date;
+  const payDate = updates.payDate || current.pay_date;
+  const status = updates.status || current.status;
+
+  if (!isIsoDate(startDate) || !isIsoDate(endDate)) {
+    const error = new Error('startDate and endDate must be YYYY-MM-DD');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await assertNoOverlappingPeriod(startDate, endDate, id);
+  const weeks = computeBiweeklyWeekBounds(startDate, endDate);
+
+  const result = await query(
+    `UPDATE pay_periods
+     SET start_date = $1,
+         end_date = $2,
+         submit_by_date = $3,
+         pay_date = $4,
+         status = $5,
+         week1_start = $6,
+         week1_end = $7,
+         week2_start = $8,
+         week2_end = $9
+     WHERE id = $10
+     RETURNING
+       id,
+       paychex_period_id,
+       start_date::text AS start_date,
+       end_date::text AS end_date,
+       submit_by_date::text AS submit_by_date,
+       pay_date::text AS pay_date,
+       status,
+       week1_start::text AS week1_start,
+       week1_end::text AS week1_end,
+       week2_start::text AS week2_start,
+       week2_end::text AS week2_end`,
+    [
+      startDate,
+      endDate,
+      submitByDate,
+      payDate,
+      status,
+      weeks.week1Start,
+      weeks.week1End,
+      weeks.week2Start,
+      weeks.week2End,
+      id,
+    ]
+  );
+
+  return mapPeriodOption(result.rows[0]);
+}
+
+async function deleteManualPayPeriod(id) {
+  const existing = await query(`SELECT id FROM pay_periods WHERE id = $1`, [id]);
+  if (!existing.rows.length) {
+    const error = new Error('Pay period not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const entries = await query(
+    `SELECT 1 FROM daily_time_entries WHERE pay_period_id = $1 LIMIT 1`,
+    [id]
+  );
+  if (entries.rows.length > 0) {
+    const error = new Error('Cannot delete pay period with time entries');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  await query(`DELETE FROM pay_periods WHERE id = $1`, [id]);
+  return { ok: true };
+}
+
 async function resolvePayrollPeriodFromQuery({ periodStart, periodEnd, payPeriodId } = {}) {
   if (payPeriodId) {
     const result = await query(`${PAY_PERIOD_SELECT} WHERE id = $1`, [payPeriodId]);
@@ -191,5 +391,11 @@ module.exports = {
   findCurrentPayPeriod,
   findPayPeriodByDateRange,
   listPayrollPayPeriods,
+  listAllPayPeriods,
+  computeBiweeklyWeekBounds,
+  datesOverlap,
+  createManualPayPeriod,
+  updateManualPayPeriod,
+  deleteManualPayPeriod,
   resolvePayrollPeriodFromQuery,
 };

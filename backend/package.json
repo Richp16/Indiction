@@ -1,5 +1,5 @@
 {
-  "name": "fieldpay-backend",
+  "name": "indiction-backend",
   "version": "1.0.0",
   "main": "server.js",
   "dependencies": {
@@ -11,7 +11,9 @@
     "jsonwebtoken": "^9.0.2",
     "node-cron": "^3.0.3",
     "pdf-lib": "^1.17.1",
-    "pg": "^8.11.0"
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.11.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
@@ -26,6 +28,7 @@
     "migrate:011": "node scripts/run-migration-011.js",
     "migrate:012": "node scripts/run-migration-012.js",
     "migrate:014": "node scripts/run-migration-014.js",
+    "migrate:018": "node scripts/run-migration-018.js",
     "paychex:health": "node scripts/check-paychex-connectivity.js",
     "inspect:wh347": "node scripts/inspectWh347Fields.js",
     "test:wh347-fill": "node scripts/testWh347Fill.js"

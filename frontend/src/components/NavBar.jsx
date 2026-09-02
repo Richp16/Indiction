@@ -34,7 +34,7 @@ export default function NavBar() {
     <nav className="navbar">
       <NavLink to="/" className="navbar-brand">
         <HardhatLogo />
-        Wellcraft Pay
+        Indiction
       </NavLink>
 
       <div className="navbar-links">

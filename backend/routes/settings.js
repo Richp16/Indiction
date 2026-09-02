@@ -4,12 +4,13 @@ const { requireRole } = require('../middleware/roleGuard');
 const { runFullSync } = require('../services/paychexSync');
 const { checkPaychexConnectivity } = require('../services/paychexHttp');
 const { requireGlobalEditLock } = require('../middleware/editLock');
+const { requirePaychexEnabled } = require('../middleware/paychexGuard');
 
 const router = express.Router();
 
 router.use(requireRole('system_admin'));
 
-router.get('/sync/paychex-health', async (_req, res) => {
+router.get('/sync/paychex-health', requirePaychexEnabled, async (_req, res) => {
   try {
     const result = await checkPaychexConnectivity();
     res.status(result.ok ? 200 : 503).json(result);
@@ -18,7 +19,7 @@ router.get('/sync/paychex-health', async (_req, res) => {
   }
 });
 
-router.post('/sync', requireGlobalEditLock, async (req, res) => {
+router.post('/sync', requirePaychexEnabled, requireGlobalEditLock, async (req, res) => {
   try {
     const results = await runFullSync();
     res.json({ success: true, results });

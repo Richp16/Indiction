@@ -18,6 +18,7 @@ const { startScheduledSyncs } = require('./services/paychexSyncScheduler');
 const { checkPaychexConnectivity } = require('./services/paychexHttp');
 const { startCronJobs } = require('./cron/jobs');
 const { pool } = require('./db');
+const { isPaychexEnabled } = require('./middleware/paychexGuard');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -44,12 +45,15 @@ app.use(auth);
 
 app.use('/api/edit-lock', require('./routes/editLock'));
 app.use('/api/account', require('./routes/account'));
+app.use('/api/app-config', require('./routes/appConfig'));
 app.use('/api/workers', workersRoutes);
 app.use('/api/job-sites', jobSitesRoutes);
 app.use('/api/entries', entriesRoutes);
+app.use('/api/entries/import', require('./routes/entriesImport'));
 app.use('/api/summary', summaryRoutes);
 app.get('/api/pay-periods/current', summaryRoutes.getCurrentPayPeriod);
 app.get('/api/pay-periods/for-date', summaryRoutes.getPayPeriodForDate);
+app.use('/api/pay-periods', require('./routes/payPeriods'));
 app.get('/api/alerts', summaryRoutes.getAlerts);
 app.get(
   '/api/daily-entries/export',
@@ -81,17 +85,21 @@ async function startup() {
     console.error('[startup] DB connectivity FAILED:', error);
   }
 
-  // Existing Paychex connectivity check.
-  const connectivity = await checkPaychexConnectivity();
-  if (connectivity.ok) {
-    console.log(`${connectivity.message} (baseURL: ${connectivity.baseUrl})`);
+  // Paychex connectivity and scheduled syncs (skipped in Non-Paychex mode).
+  const paychexOn = await isPaychexEnabled();
+  if (paychexOn) {
+    const connectivity = await checkPaychexConnectivity();
+    if (connectivity.ok) {
+      console.log(`${connectivity.message} (baseURL: ${connectivity.baseUrl})`);
+    } else {
+      console.error(connectivity.message, connectivity.error);
+    }
+    startScheduledSyncs();
   } else {
-    console.error(connectivity.message, connectivity.error);
+    console.log('[startup] Paychex disabled — skipping connectivity check and scheduled syncs');
   }
 
-  // Existing scheduled syncs and cron jobs.
-  startScheduledSyncs();
-  startCronJobs();
+  startCronJobs(paychexOn);
 }
 
 startup();
@@ -100,6 +108,6 @@ module.exports = app;
 
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`FieldPay backend listening on port ${PORT}`);
+    console.log(`Indiction backend listening on port ${PORT}`);
   });
 }

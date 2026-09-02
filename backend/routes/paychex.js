@@ -27,8 +27,10 @@ const {
 } = require('../services/paychexPayPeriodApi');
 const { formatPaychexErrorForLog } = require('../services/paychexErrors');
 const { requireGlobalEditLock } = require('../middleware/editLock');
+const { requirePaychexEnabled } = require('../middleware/paychexGuard');
 
 const router = express.Router();
+router.use(requirePaychexEnabled);
 router.use(requireRole('system_admin', 'payroll_admin'));
 
 function buildChecksErrorDebug(error) {

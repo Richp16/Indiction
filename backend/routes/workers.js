@@ -79,6 +79,123 @@ async function updateWorkerLaborClassification(req, res, { classificationId }) {
   });
 }
 
+router.get('/admin', requireRole('system_admin', 'payroll_admin'), async (_req, res) => {
+  try {
+    const result = await query(
+      `SELECT
+         w.id,
+         w.employee_code,
+         w.first_name,
+         w.last_name,
+         w.is_active,
+         w.standard_rate,
+         w.worker_type,
+         w.labor_classification_id,
+         lc.name AS labor_classification_name
+       FROM workers w
+       LEFT JOIN labor_classifications lc ON w.labor_classification_id = lc.id
+       ORDER BY w.last_name, w.first_name`
+    );
+    res.json(
+      result.rows.map((row) => ({
+        id: row.id,
+        employeeCode: row.employee_code,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        isActive: row.is_active,
+        standardRate: row.standard_rate != null ? parseFloat(row.standard_rate) : null,
+        workerType: row.worker_type,
+        laborClassificationId: row.labor_classification_id,
+        laborClassificationName: row.labor_classification_name || null,
+      }))
+    );
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/', requireRole('system_admin', 'payroll_admin'), requireGlobalEditLock, async (req, res) => {
+  try {
+    const {
+      employeeCode,
+      firstName,
+      lastName,
+      standardRate,
+      laborClassificationId,
+      workerType = 'J',
+      isActive = true,
+    } = req.body || {};
+
+    if (!firstName || !lastName) {
+      return res.status(400).json({ message: 'firstName and lastName are required' });
+    }
+    if (!['J', 'RA'].includes(workerType)) {
+      return res.status(400).json({ message: 'workerType must be J or RA' });
+    }
+
+    let classificationId = null;
+    if (laborClassificationId != null && laborClassificationId !== '') {
+      const parsed = Number(laborClassificationId);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        return res.status(400).json({ message: 'laborClassificationId must be a positive integer or null' });
+      }
+      const classificationResult = await query(
+        `SELECT id FROM labor_classifications WHERE id = $1`,
+        [parsed]
+      );
+      if (classificationResult.rows.length === 0) {
+        return res.status(404).json({ message: 'Classification not found' });
+      }
+      classificationId = parsed;
+    }
+
+    const result = await query(
+      `INSERT INTO workers (
+         paychex_worker_id,
+         employee_code,
+         first_name,
+         last_name,
+         standard_rate,
+         labor_classification_id,
+         worker_type,
+         is_active
+       ) VALUES (NULL, $1, $2, $3, $4, $5, $6, $7)
+       RETURNING
+         id,
+         employee_code,
+         first_name,
+         last_name,
+         is_active,
+         standard_rate,
+         worker_type,
+         labor_classification_id`,
+      [
+        employeeCode || null,
+        firstName,
+        lastName,
+        standardRate != null ? Number(standardRate) : null,
+        classificationId,
+        workerType,
+        Boolean(isActive),
+      ]
+    );
+
+    const worker = result.rows[0];
+    res.status(201).json({
+      id: worker.id,
+      employeeCode: worker.employee_code,
+      firstName: worker.first_name,
+      lastName: worker.last_name,
+      isActive: worker.is_active,
+      standardRate: worker.standard_rate != null ? parseFloat(worker.standard_rate) : null,
+      workerType: worker.worker_type,
+      laborClassificationId: worker.labor_classification_id,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 router.get('/assignments', requireRole('system_admin', 'payroll_admin'), async (_req, res) => {
   try {
     const result = await query(
@@ -331,21 +448,104 @@ router.get(
 
 router.patch('/:id', requireRole('system_admin', 'payroll_admin'), requireGlobalEditLock, async (req, res) => {
   try {
-    const { worker_type } = req.body;
-    if (!['J', 'RA'].includes(worker_type)) {
-      return res.status(400).json({ message: 'worker_type must be J or RA' });
+    const {
+      worker_type,
+      workerType,
+      firstName,
+      lastName,
+      employeeCode,
+      standardRate,
+      laborClassificationId,
+      isActive,
+    } = req.body || {};
+
+    const fields = [];
+    const values = [];
+
+    const resolvedType = worker_type ?? workerType;
+    if (resolvedType != null) {
+      if (!['J', 'RA'].includes(resolvedType)) {
+        return res.status(400).json({ message: 'worker_type must be J or RA' });
+      }
+      values.push(resolvedType);
+      fields.push(`worker_type = $${values.length}`);
     }
+    if (firstName != null) {
+      values.push(firstName);
+      fields.push(`first_name = $${values.length}`);
+    }
+    if (lastName != null) {
+      values.push(lastName);
+      fields.push(`last_name = $${values.length}`);
+    }
+    if (employeeCode !== undefined) {
+      values.push(employeeCode || null);
+      fields.push(`employee_code = $${values.length}`);
+    }
+    if (standardRate !== undefined) {
+      values.push(standardRate != null ? Number(standardRate) : null);
+      fields.push(`standard_rate = $${values.length}`);
+    }
+    if (isActive !== undefined) {
+      values.push(Boolean(isActive));
+      fields.push(`is_active = $${values.length}`);
+    }
+    if (laborClassificationId !== undefined) {
+      let classificationId = null;
+      if (laborClassificationId != null && laborClassificationId !== '') {
+        const parsed = Number(laborClassificationId);
+        if (!Number.isInteger(parsed) || parsed <= 0) {
+          return res.status(400).json({ message: 'laborClassificationId must be a positive integer or null' });
+        }
+        const classificationResult = await query(
+          `SELECT id FROM labor_classifications WHERE id = $1`,
+          [parsed]
+        );
+        if (classificationResult.rows.length === 0) {
+          return res.status(404).json({ message: 'Classification not found' });
+        }
+        classificationId = parsed;
+      }
+      values.push(classificationId);
+      fields.push(`labor_classification_id = $${values.length}`);
+    }
+
+    if (!fields.length) {
+      return res.status(400).json({ message: 'No fields to update' });
+    }
+
+    values.push(req.params.id);
     const result = await query(
       `UPDATE workers
-       SET worker_type = $1
-       WHERE id = $2
-       RETURNING id, worker_type`,
-      [worker_type, req.params.id]
+       SET ${fields.join(', ')}
+       WHERE id = $${values.length}
+       RETURNING
+         id,
+         employee_code,
+         first_name,
+         last_name,
+         is_active,
+         standard_rate,
+         worker_type,
+         labor_classification_id`,
+      values
     );
+
     if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Worker not found' });
     }
-    res.json(result.rows[0]);
+
+    const worker = result.rows[0];
+    res.json({
+      id: worker.id,
+      employeeCode: worker.employee_code,
+      firstName: worker.first_name,
+      lastName: worker.last_name,
+      isActive: worker.is_active,
+      standardRate: worker.standard_rate != null ? parseFloat(worker.standard_rate) : null,
+      workerType: worker.worker_type,
+      laborClassificationId: worker.labor_classification_id,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

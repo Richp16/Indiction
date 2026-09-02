@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS labor_classifications (
 
 CREATE TABLE IF NOT EXISTS workers (
   id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  paychex_worker_id       TEXT UNIQUE NOT NULL,
+  paychex_worker_id       TEXT UNIQUE,
   employee_code           TEXT,
   first_name              TEXT NOT NULL,
   last_name               TEXT NOT NULL,
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS job_sites (
 
 CREATE TABLE IF NOT EXISTS pay_periods (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  paychex_period_id   TEXT UNIQUE NOT NULL,
+  paychex_period_id   TEXT UNIQUE,
   start_date          DATE NOT NULL,
   end_date            DATE NOT NULL,
   submit_by_date      DATE NOT NULL,
@@ -196,7 +196,9 @@ CREATE TABLE IF NOT EXISTS company_settings (
   certifying_official_name  VARCHAR(255),
   certifying_official_title VARCHAR(255),
   phone                     VARCHAR(30),
-  email                     VARCHAR(255)
+  email                     VARCHAR(255),
+  paychex_enabled           BOOLEAN NOT NULL DEFAULT true,
+  integration_configured    BOOLEAN NOT NULL DEFAULT false
 );
 
 CREATE TABLE IF NOT EXISTS submission_log (

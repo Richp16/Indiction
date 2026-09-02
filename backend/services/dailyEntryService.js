@@ -789,6 +789,7 @@ async function deleteDailyEntry(dailyEntryId) {
 module.exports = {
   DailyEntryError,
   createDailyEntry,
+  createDailyEntryInTransaction,
   createBulkDailyEntries,
   updateDailyEntry,
   deleteDailyEntry,

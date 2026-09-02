@@ -1,4 +1,5 @@
 const { runPayPeriodSync, runReferenceDataSync } = require('./paychexSync');
+const { isPaychexEnabled } = require('../middleware/paychexGuard');
 
 const SYNC_INTERVAL_MS =
   Number(process.env.PAYCHEX_SYNC_INTERVAL_MS) || 6 * 60 * 60 * 1000; // 4x/day
@@ -6,6 +7,10 @@ const SYNC_INTERVAL_MS =
 let syncInProgress = false;
 
 async function runAllSyncsGuarded(reason = 'unknown') {
+  if (!(await isPaychexEnabled())) {
+    console.log(`[sync] Skipped (${reason}) — Paychex disabled`);
+    return { skipped: true, paychexDisabled: true };
+  }
   if (syncInProgress) {
     console.log(`[sync] Skipped (${reason}) — already running`);
     return { skipped: true };
@@ -33,11 +38,21 @@ async function runSyncIfNotAlreadyRunning(reason = 'unknown') {
 }
 
 function startScheduledSyncs() {
-  console.log(
-    `[sync] Scheduler armed: first run in 30s, then every ${SYNC_INTERVAL_MS}ms`
-  );
-  setTimeout(() => runAllSyncsGuarded('startup'), 30 * 1000);
-  setInterval(() => runAllSyncsGuarded('interval'), SYNC_INTERVAL_MS);
+  isPaychexEnabled()
+    .then((enabled) => {
+      if (!enabled) {
+        console.log('[sync] Scheduler not started — Paychex disabled');
+        return;
+      }
+      console.log(
+        `[sync] Scheduler armed: first run in 30s, then every ${SYNC_INTERVAL_MS}ms`
+      );
+      setTimeout(() => runAllSyncsGuarded('startup'), 30 * 1000);
+      setInterval(() => runAllSyncsGuarded('interval'), SYNC_INTERVAL_MS);
+    })
+    .catch((error) => {
+      console.error('[sync] Failed to start scheduler:', error.message);
+    });
 }
 
 module.exports = {

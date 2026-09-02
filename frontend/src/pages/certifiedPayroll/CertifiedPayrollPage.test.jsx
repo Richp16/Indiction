@@ -110,6 +110,18 @@ vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ token: 'test-token', user: { role: 'system_admin' } }),
 }));
 
+vi.mock('../../context/AppConfigContext', () => ({
+  useAppConfig: () => ({ paychexEnabled: true, integrationConfigured: true }),
+}));
+
+vi.mock('../../context/EditLockContext', () => ({
+  useEditLock: () => ({
+    readOnly: false,
+    isLockHolder: true,
+    acquireLock: vi.fn(),
+  }),
+}));
+
 vi.mock('../../api/client', () => ({
   apiGet: (...args) => apiGetMock(...args),
   apiPost: (...args) => apiPostMock(...args),
@@ -130,6 +142,9 @@ function setupApiMocks({ delayTableData = false } = {}) {
   const supplementsDeferred = delayTableData ? deferred() : null;
 
   apiGetMock = vi.fn(async (path) => {
+    if (path === '/api/app-config') {
+      return { paychexEnabled: true, integrationConfigured: true };
+    }
     if (path === '/api/job-sites') return mockSites;
     if (path === '/api/paychex/company') return mockCompany;
     if (path === '/api/labor-classifications') return mockClassifications;
@@ -361,6 +376,9 @@ describe('CertifiedPayrollPage loading states', () => {
 
   it('keeps hour log visible when company checks return a Paychex server error', async () => {
     apiGetMock = vi.fn(async (path) => {
+      if (path === '/api/app-config') {
+        return { paychexEnabled: true, integrationConfigured: true };
+      }
       if (path === '/api/job-sites') return mockSites;
       if (path === '/api/paychex/company') return mockCompany;
       if (path === '/api/labor-classifications') return mockClassifications;
@@ -398,6 +416,9 @@ describe('CertifiedPayrollPage loading states', () => {
 
   it('shows empty state only after data has loaded', async () => {
     apiGetMock = vi.fn(async (path) => {
+      if (path === '/api/app-config') {
+        return { paychexEnabled: true, integrationConfigured: true };
+      }
       if (path === '/api/job-sites') return mockSites;
       if (path === '/api/paychex/company') return mockCompany;
       if (path === '/api/labor-classifications') return mockClassifications;
@@ -462,6 +483,9 @@ describe('CertifiedPayrollPage classification assignment', () => {
     };
 
     apiGetMock = vi.fn(async (path) => {
+      if (path === '/api/app-config') {
+        return { paychexEnabled: true, integrationConfigured: true };
+      }
       if (path === '/api/job-sites') return mockSites;
       if (path === '/api/paychex/company') return mockCompany;
       if (path === '/api/labor-classifications') return mockClassifications;
@@ -520,6 +544,9 @@ describe('CertifiedPayrollPage classification assignment', () => {
     };
 
     apiGetMock = vi.fn(async (path) => {
+      if (path === '/api/app-config') {
+        return { paychexEnabled: true, integrationConfigured: true };
+      }
       if (path === '/api/job-sites') return mockSites;
       if (path === '/api/paychex/company') return mockCompany;
       if (path === '/api/labor-classifications') return mockClassifications;

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useAppConfig } from '../context/AppConfigContext';
 import SyncFailureBanner from './SyncFailureBanner';
 import EditLockBanner from './EditLockBanner';
 
@@ -11,7 +12,7 @@ const SETTINGS_PATHS = [
   '/company-settings',
 ];
 
-const PAYROLL_PATHS = ['/payroll', '/job-costing'];
+const PAYROLL_PATHS = ['/payroll', '/job-costing', '/admin/employees'];
 
 function NavDropdown({ label, items, paths }) {
   const location = useLocation();
@@ -97,10 +98,12 @@ function SettingsDropdown() {
 }
 
 function PayrollDropdown() {
-  const { paychexEnabled } = useAuth();
+  const { paychexEnabled } = useAppConfig();
   const items = [];
-  if (paychexEnabled !== false) {
+  if (paychexEnabled) {
     items.push({ to: '/payroll', label: 'Paychex Export' });
+  } else {
+    items.push({ to: '/admin/employees', label: 'Manage Employees' });
   }
   items.push({ to: '/job-costing', label: 'Job Costing' });
 
@@ -152,10 +155,17 @@ function AppLayout({ children }) {
   );
 }
 
-export default function ProtectedRoute({ children, requireAdmin = false }) {
+export default function ProtectedRoute({
+  children,
+  requireAdmin = false,
+  skipSetupRedirect = false,
+  minimalLayout = false,
+}) {
   const { token, isAdmin, isLoading } = useAuth();
+  const { integrationConfigured, loading: configLoading } = useAppConfig();
+  const location = useLocation();
 
-  if (isLoading) {
+  if (isLoading || configLoading) {
     return <p>Loading…</p>;
   }
 
@@ -163,8 +173,20 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
     return <Navigate to="/login" replace />;
   }
 
+  if (
+    !skipSetupRedirect &&
+    !integrationConfigured &&
+    location.pathname !== '/setup'
+  ) {
+    return <Navigate to="/setup" replace />;
+  }
+
   if (requireAdmin && !isAdmin) {
     return <Navigate to="/daily-entry" replace />;
+  }
+
+  if (minimalLayout) {
+    return <main className="app-main-content">{children}</main>;
   }
 
   return <AppLayout>{children}</AppLayout>;

@@ -1,12 +1,15 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
+import { useAppConfig } from './context/AppConfigContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
+import SetupModePage from './pages/SetupModePage';
 import DailyEntry from './pages/DailyEntry';
 import SummaryPage from './pages/SummaryPage';
 import MyEntriesPage from './pages/MyEntriesPage';
 import PayrollPage from './pages/PayrollPage';
 import JobCostingPage from './pages/JobCostingPage';
+import ManageEmployeesPage from './pages/ManageEmployeesPage';
 import ManageUsers from './pages/ManageUsers';
 import Settings from './pages/Settings';
 import CompanySettingsPage from './pages/CompanySettingsPage';
@@ -18,18 +21,52 @@ import ManageBillsPage from './pages/ManageBillsPage';
 
 function HomeRedirect() {
   const { token, isLoading } = useAuth();
+  const { integrationConfigured, loading: configLoading } = useAppConfig();
 
-  if (isLoading) {
+  if (isLoading || configLoading) {
     return <p>Loading…</p>;
   }
 
-  return <Navigate to={token ? '/daily-entry' : '/login'} replace />;
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!integrationConfigured) {
+    return <Navigate to="/setup" replace />;
+  }
+
+  return <Navigate to="/daily-entry" replace />;
+}
+
+function PayrollGate({ children }) {
+  const { paychexEnabled } = useAppConfig();
+  if (!paychexEnabled) {
+    return <Navigate to="/admin/employees" replace />;
+  }
+  return children;
+}
+
+function NonPaychexGate({ children }) {
+  const { paychexEnabled } = useAppConfig();
+  if (paychexEnabled) {
+    return <Navigate to="/daily-entry" replace />;
+  }
+  return children;
+}
+
+function SettingsGate({ children }) {
+  const { paychexEnabled } = useAppConfig();
+  if (!paychexEnabled) {
+    return <Navigate to="/company-settings" replace />;
+  }
+  return children;
 }
 
 export default function App() {
   const { token, isLoading } = useAuth();
+  const { loading: configLoading } = useAppConfig();
 
-  if (isLoading) {
+  if (isLoading || (token && configLoading)) {
     return <p>Loading…</p>;
   }
 
@@ -37,9 +74,17 @@ export default function App() {
     <Routes>
       <Route
         path="/login"
-        element={token ? <Navigate to="/daily-entry" replace /> : <Login />}
+        element={token ? <Navigate to="/" replace /> : <Login />}
       />
       <Route path="/" element={<HomeRedirect />} />
+      <Route
+        path="/setup"
+        element={
+          <ProtectedRoute skipSetupRedirect minimalLayout>
+            <SetupModePage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/daily-entry"
         element={
@@ -69,7 +114,19 @@ export default function App() {
         path="/payroll"
         element={
           <ProtectedRoute requireAdmin>
-            <PayrollPage />
+            <PayrollGate>
+              <PayrollPage />
+            </PayrollGate>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/employees"
+        element={
+          <ProtectedRoute requireAdmin>
+            <NonPaychexGate>
+              <ManageEmployeesPage />
+            </NonPaychexGate>
           </ProtectedRoute>
         }
       />
@@ -101,7 +158,9 @@ export default function App() {
         path="/settings"
         element={
           <ProtectedRoute requireAdmin>
-            <Settings />
+            <SettingsGate>
+              <Settings />
+            </SettingsGate>
           </ProtectedRoute>
         }
       />

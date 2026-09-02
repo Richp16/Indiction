@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { useEditLock } from '../context/EditLockContext';
 import { apiGet, apiPatch, apiPost, apiPostDownload } from '../api/client';
 import { downloadFile } from '../utils/downloadFile';
+import { useAppConfig } from '../context/AppConfigContext';
+import TimeEntryImportPanel from '../components/TimeEntryImportPanel';
 import PaychexSyncButton from '../components/PaychexSyncButton';
 import DailyHourLogSkeleton from './certifiedPayroll/DailyHourLogSkeleton';
 import Wh347SupplementSkeleton from './certifiedPayroll/Wh347SupplementSkeleton';
@@ -131,6 +133,8 @@ const resyncStatusStyle = {
 
 export default function CertifiedPayrollPage() {
   const { token } = useAuth();
+  const { paychexEnabled } = useAppConfig();
+  const [importRefreshNonce, setImportRefreshNonce] = useState(0);
   const {
     sites,
     payPeriods,
@@ -158,7 +162,7 @@ export default function CertifiedPayrollPage() {
     checksErrorDebug,
     isLoadingPageData,
     loadError,
-  } = useCertifiedPayrollData(token);
+  } = useCertifiedPayrollData(token, importRefreshNonce);
 
   const { readOnly } = useEditLock();
 
@@ -512,6 +516,13 @@ export default function CertifiedPayrollPage() {
 
       <h1 style={{ marginBottom: '1rem' }}>Certified Payroll</h1>
 
+      {!paychexEnabled && (
+        <TimeEntryImportPanel
+          token={token}
+          onCommitted={() => setImportRefreshNonce((value) => value + 1)}
+        />
+      )}
+
       {displayError && <p style={{ color: 'crimson', marginBottom: '1rem' }}>{displayError}</p>}
       {successMessage && <p style={{ color: '#15803d', marginBottom: '1rem' }}>{successMessage}</p>}
       {isResyncing && (
@@ -594,14 +605,16 @@ export default function CertifiedPayrollPage() {
           )}
         </select>
 
-        <PaychexSyncButton
-          label="Re-sync from Paychex"
-          token={token}
-          onSync={resyncFromPaychex}
-          disabled={!selectedSite || !weekEndingDate || isLoadingPageData || readOnly}
-          className=""
-          style={secondaryButtonStyle}
-        />
+        {paychexEnabled && (
+          <PaychexSyncButton
+            label="Re-sync from Paychex"
+            token={token}
+            onSync={resyncFromPaychex}
+            disabled={!selectedSite || !weekEndingDate || isLoadingPageData || readOnly}
+            className=""
+            style={secondaryButtonStyle}
+          />
+        )}
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>Contractor role</span>

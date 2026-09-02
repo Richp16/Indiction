@@ -6,9 +6,9 @@ import {
   sendLogoutBeacon,
 } from '../api/client';
 
-const TOKEN_KEY = 'fieldpay_token';
-const USER_KEY = 'fieldpay_user';
-const SESSION_MSG_KEY = 'fieldpay_session_message';
+const TOKEN_KEY = 'indiction_token';
+const USER_KEY = 'indiction_user';
+const SESSION_MSG_KEY = 'indiction_session_message';
 
 /** Activity heartbeat for all logged-in users (separate from edit-lock heartbeat). */
 const SESSION_HEARTBEAT_MS = 60_000;

@@ -4,15 +4,17 @@ const { runAllSyncsGuarded } = require('../services/paychexSyncScheduler');
 const { retryFailedSubmission } = require('../services/paychexSubmit');
 const { subtractBusinessDays } = require('../utils/businessDays');
 
-function startCronJobs() {
-  cron.schedule('0 6 * * *', async () => {
-    const result = await runAllSyncsGuarded('cron-daily');
-    if (result.error) {
-      console.error('[cron] Daily sync failed:', result.error.message || result.error);
-    } else if (!result.skipped) {
-      console.log('[cron] Daily sync completed');
-    }
-  });
+function startCronJobs(paychexOn = true) {
+  if (paychexOn) {
+    cron.schedule('0 6 * * *', async () => {
+      const result = await runAllSyncsGuarded('cron-daily');
+      if (result.error) {
+        console.error('[cron] Daily sync failed:', result.error.message || result.error);
+      } else if (!result.skipped) {
+        console.log('[cron] Daily sync completed');
+      }
+    });
+  }
 
   cron.schedule('0 8 * * *', async () => {
     try {

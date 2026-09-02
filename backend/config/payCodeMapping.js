@@ -22,6 +22,8 @@ const PAYCHEX_COMPONENT_TO_PAY_CODE = {
 
 const WAGE_PAY_CODES = new Set(['REGULAR', 'OT', 'DT']);
 
+const STANDARD_DAILY_PAY_CODES = ['REGULAR', 'OT', 'DT', 'PTO', 'REIMBURSE'];
+
 function mapPayCodeToPaychexComponent(payCode) {
   return PAY_CODE_TO_PAYCHEX_COMPONENT[payCode] || payCode;
 }
@@ -46,6 +48,7 @@ function splitHoursByPayCode(payCode, hours) {
 module.exports = {
   PAY_CODE_TO_PAYCHEX_COMPONENT,
   PAYCHEX_COMPONENT_TO_PAY_CODE,
+  STANDARD_DAILY_PAY_CODES,
   mapPayCodeToPaychexComponent,
   mapPaychexComponentToPayCode,
   isWagePayCode,

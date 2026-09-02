@@ -157,7 +157,7 @@ export function normalizePaychexPeriodOption(period) {
 
 const emptyQuery = { isLoading: false, error: null };
 
-export function useCertifiedPayrollData(token) {
+export function useCertifiedPayrollData(token, refreshNonce = 0) {
   const [sites, setSites] = useState([]);
   const [companyId, setCompanyId] = useState('');
   const [paychexPayPeriods, setPaychexPayPeriods] = useState([]);
@@ -226,21 +226,42 @@ export function useCertifiedPayrollData(token) {
       setPayPeriodsQuery({ isLoading: true, error: null });
 
       try {
-        const company = await apiGet('/api/paychex/company', token);
-        const cid = company.companyId;
-        if (cancelled) return;
-
-        const [sitesData, periodsData] = await Promise.all([
+        const [sitesData, appConfig] = await Promise.all([
           apiGet('/api/job-sites', token),
-          apiGet(`/api/paychex/companies/${cid}/pay-periods?hasHours=true`, token),
+          apiGet('/api/app-config', token),
         ]);
-
         if (cancelled) return;
 
         const active = (sitesData || []).filter((site) => site.is_active !== false);
-        const periods = (periodsData.periods || []).map(normalizePaychexPeriodOption);
+        let periods = [];
 
-        setCompanyId(cid);
+        if (appConfig.paychexEnabled !== false) {
+          const company = await apiGet('/api/paychex/company', token);
+          const cid = company.companyId;
+          const periodsData = await apiGet(
+            `/api/paychex/companies/${cid}/pay-periods?hasHours=true`,
+            token
+          );
+          periods = (periodsData.periods || []).map(normalizePaychexPeriodOption);
+          setCompanyId(cid);
+        } else {
+          const periodsData = await apiGet('/api/pay-periods', token);
+          periods = (periodsData || []).map((period) => ({
+            payPeriodId: period.id,
+            displayLabel: period.label,
+            label: period.label,
+            week1Label: period.week1Label,
+            week2Label: period.week2Label,
+            startDate: period.startDate,
+            endDate: period.endDate,
+            week1End: period.week1End,
+            week2End: period.week2End,
+          }));
+          setCompanyId('');
+        }
+
+        if (cancelled) return;
+
         setSites(active);
         setPaychexPayPeriods(periods);
         setJobSitesQuery({ isLoading: false, error: null });
@@ -266,7 +287,7 @@ export function useCertifiedPayrollData(token) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, refreshNonce]);
 
   // Hours + supplements for selected Paychex period / week.
   useEffect(() => {
