@@ -17,7 +17,7 @@ export default function SetupModePage() {
     try {
       await apiPost('/api/account/setup', { paychexEnabled }, token);
       await refreshConfig();
-      navigate(paychexEnabled ? '/daily-entry' : '/admin/employees', { replace: true });
+      navigate(paychexEnabled ? '/daily-entry' : '/local-payroll', { replace: true });
     } catch (err) {
       setError(err.message || 'Failed to save setup choice');
     } finally {

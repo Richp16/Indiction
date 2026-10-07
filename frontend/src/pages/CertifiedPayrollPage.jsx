@@ -557,7 +557,11 @@ export default function CertifiedPayrollPage() {
           disabled={payPeriods.length === 0}
         >
           {payPeriods.length === 0 ? (
-            <option value="">No Paychex pay periods (sync in Settings)</option>
+            <option value="">
+              {paychexEnabled
+                ? 'No Paychex pay periods (sync in Settings)'
+                : 'No local pay periods (create in Manage Employees)'}
+            </option>
           ) : (
             payPeriods.map((period) => {
               const baseLabel = period.displayLabel || period.label || period.description || period.payPeriodId;
@@ -586,10 +590,11 @@ export default function CertifiedPayrollPage() {
             }}
             data-testid="paychex-period-link"
           >
-            {`Selected Paychex pay period ID: ${selectedPeriodPaychexId || selectedPeriod.payPeriodId}`}
+            {paychexEnabled
+              ? `Selected Paychex pay period ID: ${selectedPeriodPaychexId || selectedPeriod.payPeriodId}`
+              : `Selected pay period: ${selectedPeriod.label || selectedPeriod.payPeriodId}`}
           </span>
         )}
-
         <select
           value={selectedWeek}
           onChange={(e) => setSelectedWeek(e.target.value)}
@@ -701,7 +706,7 @@ export default function CertifiedPayrollPage() {
           </>
         ) : (
           <>
-            {reconciliationWarnings && (
+            {paychexEnabled && reconciliationWarnings && (
               <div style={{ marginBottom: '1rem' }} data-testid="reconciliation-warnings">
                 {reconciliationWarnings.checksUnavailable && (
                   <div className="alert alert-warning" style={warningBannerStyle}>
@@ -743,12 +748,19 @@ export default function CertifiedPayrollPage() {
               </div>
             )}
 
+            {!paychexEnabled && needsManualWithholding && (
+              <div className="alert alert-warning" style={warningBannerStyle} data-testid="manual-withholding-notice">
+                Withholding / net pay must be entered manually from your payroll records.
+                Any FICA values shown are estimates and require review before WH-347 export.
+              </div>
+            )}
+
             <section style={sectionStyle}>
               <h2 style={sectionTitleStyle}>Daily Hour Log</h2>
               <p style={{ marginTop: 0, color: '#64748b', fontSize: 13 }}>
-                Hours from internal time entries (not Paychex).
+                Hours from internal daily time entries.
                 {hoursRows.length === 0 && selectedPeriod
-                  ? ' No time entries found for this job site in this Paychex pay period / week.'
+                  ? ' No time entries found for this job site in this pay period / week.'
                   : ''}
               </p>
               <div style={tableWrapStyle}>
@@ -827,7 +839,9 @@ export default function CertifiedPayrollPage() {
                 {savedWorkerId && <span style={savedStyle}>Saved</span>}
               </h2>
               <p style={{ marginTop: 0, color: '#64748b', fontSize: 13 }}>
-                Money fields prefer Paychex checks for the linked pay period when available.
+                {paychexEnabled
+                  ? 'Money fields prefer Paychex checks for the linked pay period when available.'
+                  : 'Enter withholding and net pay from your payroll records. Gross is calculated from hours × rates; FICA may appear as an estimate.'}
               </p>
               <div style={tableWrapStyle}>
                 <table style={tableStyle} className="wh347-supplement-table">

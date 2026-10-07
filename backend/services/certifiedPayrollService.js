@@ -84,7 +84,7 @@ async function loadHoursRowsForDateRange(jobSiteId, startDate, endDate) {
        w.id,
        w.first_name,
        w.last_name,
-       w.employee_code AS identifying_number,
+       COALESCE(NULLIF(TRIM(w.identifying_last4), ''), w.employee_code) AS identifying_number,
        w.paychex_worker_id,
        w.worker_type,
        COALESCE(wjsr.rate, w.standard_rate, 0) AS pay_rate,
@@ -103,7 +103,7 @@ async function loadHoursRowsForDateRange(jobSiteId, startDate, endDate) {
        AND d.pay_code IN ('REGULAR','HOURLY','Hourly','Regular','OT','OVERTIME','Overtime','DT','DOUBLETIME')
      GROUP BY
        w.id, w.first_name, w.last_name,
-       w.employee_code, w.paychex_worker_id, w.worker_type, w.standard_rate,
+       w.employee_code, w.identifying_last4, w.paychex_worker_id, w.worker_type, w.standard_rate,
        wjsr.rate, lc.name, d.id, d.date_worked, d.pay_code
      ORDER BY w.last_name, d.date_worked`,
     [jobSiteId, startDate, endDate]

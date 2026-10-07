@@ -140,9 +140,11 @@ export function EditLockProvider({ children }) {
   const value = {
     ready,
     isEditor,
+    isLockHolder: isEditor,
     readOnly: ready ? !isEditor : true,
     editingUser,
     acquire,
+    acquireLock: acquire,
     release,
   };
 

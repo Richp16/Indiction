@@ -1,105 +1,111 @@
 # Indiction
 
-Open-source construction payroll and back-office web app. Superintendents log daily hours; office admins run certified payroll (WH-347), job costing, and client-side AR/AP aging. Works with **Paychex Flex** or in **Non-Paychex** mode with local workers and pay periods.
+Open-source construction payroll and back-office web app. Superintendents log daily hours; office admins run certified payroll (WH-347), job costing, and client-side AR/AP aging. Works with **Paychex Flex** or in **Non-Paychex** mode with local workers, pay periods, and a provider-neutral payroll export.
 
-## Why WH-347 automation matters
+> **Tax disclaimer:** Indiction does **not** calculate or file payroll taxes. Manually entered withholding on Certified Payroll must come from your company’s payroll/accounting records. Optional FICA figures in Non-Paychex mode are estimates and require human review.
 
-Prevailing-wage jobs require certified payroll (WH-347) each week. Indiction turns daily time entry into reviewable hour grids and exportable WH-347 PDFs, reducing manual transcription from field logs or spreadsheets.
+## Feature parity (Paychex vs Non-Paychex)
 
-## Paychex vs Non-Paychex
+| Feature | Classification | Notes |
+|---------|----------------|-------|
+| Setup / mode wizard | Shared | `/setup` |
+| Daily entry (single + bulk) | Shared | Local tables |
+| My Entries | Shared | |
+| Summary + analysis | Shared | Periods from `/api/pay-periods` |
+| Job costing + CSV | Shared | Labels hide provider recurring when local |
+| Job sites / classifications / rates / users | Shared | |
+| Company settings | Shared | Mode switch requires confirmation |
+| Global edit lock + sessions | Shared | |
+| Worker sync from Paychex | Paychex-integrated | |
+| Pay period sync | Paychex-integrated | |
+| SPI export + submission | Paychex-integrated | `/payroll` |
+| Check data / re-sync | Paychex-integrated | Certified Payroll |
+| Manage Employees | Local/manual | Workers + periods |
+| Local Payroll review/export | Export-only | `/local-payroll` → `Indiction-Payroll-*.csv` |
+| Time-entry spreadsheet import | Local/manual | Non-Paychex only |
+| WH-347 PDF | Shared | Local hours; Paychex checks when available |
+| Custom Paychex components | Not supported locally | Standard REGULAR/OT/DT/PTO/REIMBURSE |
 
-| Capability | Paychex mode | Non-Paychex mode |
-|------------|--------------|------------------|
-| Worker source | Paychex sync | Manual CRUD in **Manage Employees** |
-| Pay periods | Paychex sync | Manual biweekly periods |
-| SPI / payroll export | Yes (`/payroll`) | Redirects to Manage Employees |
-| Daily entry | Yes | Yes (`REGULAR`, `OT`, `DT`, `PTO`, `REIMBURSE`) |
-| WH-347 PDF | Yes (check data when available) | Yes (hours × rates; manual withholding) |
-| Spreadsheet import | No | Yes (Certified Payroll page) |
-| Job costing | Yes | Yes |
+See also [`docs/PARITY_MATRIX.md`](docs/PARITY_MATRIX.md).
 
-First login on a fresh database shows a **setup wizard** (`/setup`) until `integration_configured` is set.
+## Non-Paychex setup
 
-## Glossary
+1. Create PostgreSQL database and apply `backend/db/schema.sql`.
+2. Run migrations `014`, `016`, `017`, `018`, `019` (`npm run migrate:019` in `backend`).
+3. Configure `DATABASE_URL` and `JWT_SECRET`; start backend + frontend.
+4. Log in → choose **Non-Paychex** on `/setup`.
+5. Company Settings → company header fields.
+6. Manage Users → roles.
+7. Job sites, classifications, pay rates.
+8. Manage Employees → workers (unique `employee_code`, optional address / last-4) and pay periods.
+9. Enter time (Daily Entry) and/or import spreadsheet (Local Payroll or Certified Payroll).
+10. Summary + Job Costing review.
+11. Local Payroll → review → export CSV → mark exported / finalize.
+12. Certified Payroll → enter withholding manually → export WH-347.
 
-- **WH-347** — Federal certified payroll form for prevailing-wage work.
-- **SPI** — Paychex payroll export format from `/payroll`.
-- **AR / AP** — Accounts receivable / payable; `/manage-bills` imports aging spreadsheets client-side only.
-- **Prevailing wage** — Davis-Bacon style wage rules tied to job sites and classifications.
+## Local payroll export columns
+
+`Indiction-Payroll-<period-end>.csv`:
+
+`employee_code`, `first_name`, `last_name`, `period_start`, `period_end`, `pay_date`, `job_code`, `pay_code`, `hours`, `rate`, `amount`, `reimbursement_amount`, `total_gross`
+
+This is **not** Paychex SPI format.
+
+## Time-entry import
+
+Sample file: [`docs/samples/time-entry-import-sample.csv`](docs/samples/time-entry-import-sample.csv)
+
+| Column | Required | Notes |
+|--------|----------|-------|
+| `date_worked` | yes | ISO or US date |
+| `employee_code` | preferred | Stable match key |
+| `worker_name` | optional | Aid only; ambiguous names error |
+| `job_code` | yes | Match job site code or name |
+| `pay_code` | yes | REGULAR, OT, DT, PTO, REIMBURSE |
+| `hours` | yes | Non-negative |
+| `reimbursement_amount` | optional | For REIMBURSE / amounts |
+
+Duplicate policy: file duplicates are rejected; commit `merge` uses daily-entry save; `replace` deletes same worker/site/date/pay_code then inserts.
+
+API (Non-Paychex + admin + edit lock on commit):
+
+- `GET /api/entries/import/template`
+- `POST /api/entries/import/preview`
+- `POST /api/entries/import/commit`
 
 ## Tech stack
 
-- **Frontend:** React 18, Vite, React Router
-- **Backend:** Node.js, Express, PostgreSQL
-- **PDF:** pdf-lib (WH-347 template fill)
+React 18 + Vite · Express · PostgreSQL · pdf-lib
 
 ## Quick start
 
 ```bash
-# Database: create DB and run schema + migrations
 psql $DATABASE_URL -f backend/db/schema.sql
-cd backend && npm run migrate:014 && npm run migrate:016 && npm run migrate:017 && npm run migrate:018
-
-cd backend && cp .env.example .env   # set DATABASE_URL, JWT_SECRET
-npm install && npm run dev
-
+cd backend && npm run migrate:014 && npm run migrate:016 && npm run migrate:017 && npm run migrate:018 && npm run migrate:019
+cd backend && npm install && npm run dev
 cd frontend && npm install && npm run dev
 ```
 
-Open `http://localhost:5173`, log in, complete setup, then use Daily Entry.
-
-## Migrations (after baseline 013)
+## Migrations (014+)
 
 | File | Purpose |
 |------|---------|
-| `014_job_site_start_date.sql` | Job site `start_date` for WH-347 week number |
-| `016_global_edit_lock.sql` | Singleton global edit lock |
-| `017_user_sessions.sql` | Idle / tab-close sessions |
-| `018_non_paychex_mode.sql` | `paychex_enabled`, nullable Paychex IDs |
+| `014` | Job site `start_date` |
+| `016` | Global edit lock |
+| `017` | User sessions |
+| `018` | Non-Paychex flags + nullable Paychex IDs |
+| `019` | Worker address / last-4, unique employee_code, period export/finalize stamps |
 
-Fresh `schema.sql` sets `integration_configured` default **false** (wizard). Migration 018 sets **true** for existing DBs.
-
-## Environment variables
+## Environment
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DATABASE_URL` | — | PostgreSQL connection |
-| `JWT_SECRET` | — | Auth tokens |
-| `PAYCHEX_ENABLED` | DB flag | Force disable Paychex (`0`/`false`) |
-| `EDIT_LOCK_TIMEOUT_SECONDS` | `90` | Stale edit lock reclaim |
-| `SESSION_IDLE_SECONDS` | `300` | Session idle timeout |
-| `SESSION_CLOSE_GRACE_SECONDS` | `15` | Tab-close refresh grace |
-| `USE_NEW_WH347_EXPORT` | `true` | pdf-lib vs legacy PDF export |
-
-## Roles and routes
-
-Roles: `superintendent`, `payroll_admin`, `system_admin`. Admin routes use `requireAdmin` in the SPA.
-
-Key routes: `/daily-entry`, `/summary`, `/payroll` (Paychex only), `/admin/employees` (Non-Paychex), `/certified-payroll`, `/job-costing`, `/manage-bills`, `/company-settings`.
-
-## Time entry spreadsheet import (Non-Paychex)
-
-On **Certified Payroll**, download the template, upload `.xlsx`/`.csv`, preview matches, then commit. Columns: `date_worked`, `employee_code` or worker name, `job_code`, `pay_code`, `hours`. API:
-
-- `GET /api/entries/import/template`
-- `POST /api/entries/import/preview` (multipart `file`)
-- `POST /api/entries/import/commit` (requires global edit lock)
-
-Imported rows write to `daily_time_entries` and trigger the same aggregation path as the Daily Entry UI.
-
-## AR/AP: importing spreadsheets
-
-`/manage-bills` is **browser-only** (no server storage). Upload payables or receivables exports with columns such as `Job`, `Bill Amount`, `Due Date` (payables) or `Owner Name`, `Invoice Balance`, `Deadline` (receivables). The page classifies aging buckets and exports an Aging workbook.
-
-**Note:** WH-347 workbook import (week grid + supplement columns) is Phase 2; Phase 1 is daily time entry import only.
-
-## Tests
-
-```bash
-cd backend && npm test
-cd frontend && npm test
-```
+| `DATABASE_URL` | — | Postgres |
+| `JWT_SECRET` | — | Auth |
+| `PAYCHEX_ENABLED` | DB | Force off with `0`/`false` (overrides UI) |
+| `EDIT_LOCK_TIMEOUT_SECONDS` | `90` | Stale lock |
+| `SESSION_IDLE_SECONDS` | `300` | Idle logout |
 
 ## License
 
-TBD — see repository maintainers for licensing before production use.
+TBD

@@ -29,6 +29,22 @@ async function isPaychexEnabled() {
   return true;
 }
 
+function buildCapabilities(paychexEnabled) {
+  const local = !paychexEnabled;
+  return {
+    workerSource: paychexEnabled ? 'paychex' : 'local',
+    payPeriodSource: paychexEnabled ? 'paychex' : 'local',
+    supportsProviderSync: paychexEnabled,
+    supportsProviderSubmission: paychexEnabled,
+    supportsProviderCheckData: paychexEnabled,
+    supportsLocalPayrollExport: local,
+    supportsTimeEntryImport: local,
+    supportsManualTaxEntry: local,
+    supportsManageEmployees: local,
+    supportsSpiExport: paychexEnabled,
+  };
+}
+
 async function getAppConfig() {
   const paychexEnabled = await isPaychexEnabled();
   let integrationConfigured = true;
@@ -50,7 +66,11 @@ async function getAppConfig() {
     }
   }
 
-  return { paychexEnabled, integrationConfigured };
+  return {
+    paychexEnabled,
+    integrationConfigured,
+    capabilities: buildCapabilities(paychexEnabled),
+  };
 }
 
 async function requirePaychexEnabled(req, res, next) {
@@ -84,6 +104,7 @@ async function requirePaychexDisabled(req, res, next) {
 module.exports = {
   isPaychexEnabled,
   getAppConfig,
+  buildCapabilities,
   requirePaychexEnabled,
   requirePaychexDisabled,
   parseEnabledFlag,

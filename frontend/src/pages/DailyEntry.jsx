@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useAppConfig } from '../context/AppConfigContext';
 import { useEditLock } from '../context/EditLockContext';
 import { apiGet, apiPost } from '../api/client';
 import WorkerSearch from '../components/WorkerSearch';
@@ -60,6 +62,7 @@ function workerDisplayName(worker) {
 
 export default function DailyEntry() {
   const { token, isAdmin } = useAuth();
+  const { capabilities } = useAppConfig();
   const { readOnly, editingUser } = useEditLock();
 
   const [period, setPeriod] = useState(null);
@@ -454,11 +457,16 @@ export default function DailyEntry() {
         }}
       >
         <h1 style={{ margin: 0 }}>Daily Entry</h1>
-        {!readOnly && (
-          <button type="button" className="btn btn-secondary" onClick={toggleBulkMode}>
-            {bulkMode ? 'Single Entry' : 'Bulk Entry'}
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {isAdmin && capabilities?.supportsTimeEntryImport && (
+            <Link to="/local-payroll">Import spreadsheet</Link>
+          )}
+          {!readOnly && (
+            <button type="button" className="btn btn-secondary" onClick={toggleBulkMode}>
+              {bulkMode ? 'Single Entry' : 'Bulk Entry'}
+            </button>
+          )}
+        </div>
       </div>
 
       {period && (

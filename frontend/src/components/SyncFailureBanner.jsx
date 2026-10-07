@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useAppConfig } from '../context/AppConfigContext';
 import { apiGet } from '../api/client';
 
 const POLL_MS = 5 * 60 * 1000;
@@ -15,15 +16,16 @@ function formatSyncTime(value) {
 
 /**
  * Admin-only banner when the latest Paychex sync for any type has FAILED.
- * Silent when healthy. Escalates to error styling on consecutive failures.
+ * Hidden entirely in Non-Paychex mode.
  */
 export default function SyncFailureBanner() {
   const { token, isAdmin } = useAuth();
+  const { paychexEnabled, capabilities } = useAppConfig();
   const [payload, setPayload] = useState(null);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    if (!token || !isAdmin) {
+    if (!token || !isAdmin || !paychexEnabled || !capabilities?.supportsProviderSync) {
       setPayload(null);
       return undefined;
     }
@@ -48,9 +50,9 @@ export default function SyncFailureBanner() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [token, isAdmin]);
+  }, [token, isAdmin, paychexEnabled, capabilities?.supportsProviderSync]);
 
-  if (!isAdmin || !payload?.hasFailures || dismissed) {
+  if (!isAdmin || !paychexEnabled || !payload?.hasFailures || dismissed) {
     return null;
   }
 

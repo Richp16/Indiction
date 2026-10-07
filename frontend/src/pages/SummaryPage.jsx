@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useAppConfig } from '../context/AppConfigContext';
 import { apiGet, apiPost } from '../api/client';
 import PayPeriodSelector from '../components/PayPeriodSelector';
 import PaychexSyncButton from '../components/PaychexSyncButton';
@@ -16,6 +17,7 @@ function formatCurrency(value) {
 
 export default function SummaryPage() {
   const { token } = useAuth();
+  const { paychexEnabled, capabilities } = useAppConfig();
   const [periods, setPeriods] = useState([]);
   const [selectedPayPeriodId, setSelectedPayPeriodId] = useState('');
   const [totalEarnings, setTotalEarnings] = useState(0);
@@ -64,8 +66,8 @@ export default function SummaryPage() {
       setPeriodsLoading(true);
       setError('');
       try {
-        const data = await apiGet('/api/payroll/pay-periods', token);
-        const nextPeriods = data.periods || [];
+        const data = await apiGet('/api/pay-periods', token);
+        const nextPeriods = Array.isArray(data) ? data : data.periods || [];
         setPeriods(nextPeriods);
 
         const current =
@@ -158,12 +160,14 @@ export default function SummaryPage() {
         onChange={setSelectedPayPeriodId}
       />
 
-      <PaychexSyncButton
-        label="Sync Paychex recurring reimbursements"
-        token={token}
-        syncType="recurring_reimbursements"
-        onSync={syncRecurringReimbursements}
-      />
+      {capabilities?.supportsProviderSync && (
+        <PaychexSyncButton
+          label="Sync Paychex recurring reimbursements"
+          token={token}
+          syncType="recurring_reimbursements"
+          onSync={syncRecurringReimbursements}
+        />
+      )}
 
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
       {analysisLoading && <p>Loading analysis…</p>}
@@ -189,8 +193,12 @@ export default function SummaryPage() {
           <p style={statValueStyle}>{formatCurrency(totalReimbursements)}</p>
           <p style={statSubtextStyle}>
             Internal (Daily Entry): {formatCurrency(internalReimbursements)}
-            <br />
-            Paychex recurring: {formatCurrency(paychexRecurringReimbursements)}
+            {paychexEnabled && (
+              <>
+                <br />
+                Recurring (provider sync): {formatCurrency(paychexRecurringReimbursements)}
+              </>
+            )}
           </p>
         </div>
         <div style={statCardStyle}>

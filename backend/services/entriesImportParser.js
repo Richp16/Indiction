@@ -8,6 +8,7 @@ const HEADER_PATTERNS = {
   jobSite: /^(job[_\s-]?(site|code)|project|site)$/i,
   payCode: /^(pay[_\s-]?code|code|type)$/i,
   hours: /^(hours[_\s-]?worked|hours|qty|quantity)$/i,
+  reimbursement: /^(reimbursement([_\s-]?amount)?|reimb)$/i,
   payPeriod: /^(pay[_\s-]?period|period)$/i,
 };
 
@@ -146,6 +147,8 @@ function parseEntriesWorkbook(buffer) {
       .trim()
       .toUpperCase();
     const hours = parseHours(row[map.hours]);
+    const reimbursementAmount =
+      map.reimbursement != null ? parseHours(row[map.reimbursement]) : 0;
     const payPeriodRaw =
       map.payPeriod != null ? String(row[map.payPeriod] || '').trim() : '';
 
@@ -155,7 +158,8 @@ function parseEntriesWorkbook(buffer) {
       !workerRaw &&
       !jobSiteRaw &&
       !payCode &&
-      (hours == null || hours === 0);
+      (hours == null || hours === 0) &&
+      !reimbursementAmount;
     if (isBlank) continue;
 
     const rowErrors = [];
@@ -168,6 +172,9 @@ function parseEntriesWorkbook(buffer) {
     }
     if (hours == null) rowErrors.push('invalid hours');
     if (hours != null && hours < 0) rowErrors.push('hours cannot be negative');
+    if (reimbursementAmount != null && reimbursementAmount < 0) {
+      rowErrors.push('reimbursement cannot be negative');
+    }
 
     const workerName = parseWorkerName(workerRaw);
     parsedRows.push({
@@ -180,6 +187,7 @@ function parseEntriesWorkbook(buffer) {
       jobSiteRaw,
       payCode,
       hours: hours ?? 0,
+      reimbursementAmount: reimbursementAmount || 0,
       payPeriodRaw: payPeriodRaw || null,
       errors: rowErrors,
     });
@@ -198,9 +206,18 @@ function parseEntriesWorkbook(buffer) {
 
 function buildImportTemplateWorkbook() {
   const data = [
-    ['date_worked', 'employee_code', 'worker_name', 'job_code', 'pay_code', 'hours'],
-    ['2026-07-07', 'E100', 'Rivera, Alex', 'PW-2024', 'REGULAR', 8],
-    ['2026-07-07', 'E100', 'Rivera, Alex', 'PW-2024', 'OT', 2],
+    [
+      'date_worked',
+      'employee_code',
+      'worker_name',
+      'job_code',
+      'pay_code',
+      'hours',
+      'reimbursement_amount',
+    ],
+    ['2026-07-07', 'E100', 'Rivera, Alex', 'PW-2024', 'REGULAR', 8, ''],
+    ['2026-07-07', 'E100', 'Rivera, Alex', 'PW-2024', 'OT', 2, ''],
+    ['2026-07-07', 'E100', 'Rivera, Alex', 'PW-2024', 'REIMBURSE', 0, 25],
   ];
   const sheet = XLSX.utils.aoa_to_sheet(data);
   const workbook = XLSX.utils.book_new();

@@ -12,7 +12,7 @@ const SETTINGS_PATHS = [
   '/company-settings',
 ];
 
-const PAYROLL_PATHS = ['/payroll', '/job-costing', '/admin/employees'];
+const PAYROLL_PATHS = ['/payroll', '/local-payroll', '/job-costing', '/admin/employees'];
 
 function NavDropdown({ label, items, paths }) {
   const location = useLocation();
@@ -98,11 +98,13 @@ function SettingsDropdown() {
 }
 
 function PayrollDropdown() {
-  const { paychexEnabled } = useAppConfig();
+  const { paychexEnabled, capabilities } = useAppConfig();
   const items = [];
-  if (paychexEnabled) {
-    items.push({ to: '/payroll', label: 'Paychex Export' });
-  } else {
+  if (capabilities?.supportsSpiExport || paychexEnabled) {
+    items.push({ to: '/payroll', label: 'Paychex SPI' });
+  }
+  if (capabilities?.supportsLocalPayrollExport || !paychexEnabled) {
+    items.push({ to: '/local-payroll', label: 'Local Payroll' });
     items.push({ to: '/admin/employees', label: 'Manage Employees' });
   }
   items.push({ to: '/job-costing', label: 'Job Costing' });

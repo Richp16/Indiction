@@ -1,0 +1,6 @@
+date_worked,employee_code,worker_name,job_code,pay_code,hours,reimbursement_amount
+2026-07-07,E100,"Rivera, Alex",PW-2024,REGULAR,8,
+2026-07-07,E100,"Rivera, Alex",PW-2024,OT,2,
+2026-07-07,E100,"Rivera, Alex",PW-2024,REIMBURSE,0,25
+2026-07-08,E200,"Nguyen, Sam",PW-2024,REGULAR,8,
+2026-07-08,E200,"Nguyen, Sam",PW-2024,PTO,0,

@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS workers (
   standard_rate           NUMERIC(10,2),
   is_active               BOOLEAN DEFAULT true,
   last_synced_at          TIMESTAMPTZ,
-  labor_classification_id INTEGER REFERENCES labor_classifications(id) ON DELETE SET NULL
+  labor_classification_id INTEGER REFERENCES labor_classifications(id) ON DELETE SET NULL,
+  address                 TEXT,
+  identifying_last4       VARCHAR(4)
 );
 
 CREATE TABLE IF NOT EXISTS worker_pay_components (
@@ -77,7 +79,9 @@ CREATE TABLE IF NOT EXISTS pay_periods (
   week1_start         DATE,
   week1_end           DATE,
   week2_start         DATE,
-  week2_end           DATE
+  week2_end           DATE,
+  exported_at         TIMESTAMPTZ,
+  finalized_at        TIMESTAMPTZ
 );
 
 -- Paychex-discovered periods for /checks (separate from operational pay_periods)
@@ -262,3 +266,7 @@ CREATE INDEX IF NOT EXISTS idx_user_sessions_user
 CREATE INDEX IF NOT EXISTS idx_user_sessions_activity
   ON user_sessions (last_activity_at)
   WHERE revoked_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS workers_employee_code_unique
+  ON workers (employee_code)
+  WHERE employee_code IS NOT NULL AND TRIM(employee_code) <> '';

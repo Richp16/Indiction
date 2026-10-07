@@ -27,8 +27,9 @@
     "migrate:010": "node scripts/run-migration-010.js",
     "migrate:011": "node scripts/run-migration-011.js",
     "migrate:012": "node scripts/run-migration-012.js",
-    "migrate:014": "node scripts/run-migration-014.js",
+  "migrate:014": "node scripts/run-migration-014.js",
     "migrate:018": "node scripts/run-migration-018.js",
+    "migrate:019": "node scripts/run-migration-019.js",
     "paychex:health": "node scripts/check-paychex-connectivity.js",
     "inspect:wh347": "node scripts/inspectWh347Fields.js",
     "test:wh347-fill": "node scripts/testWh347Fill.js"

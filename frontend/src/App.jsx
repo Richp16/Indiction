@@ -9,6 +9,7 @@ import SummaryPage from './pages/SummaryPage';
 import MyEntriesPage from './pages/MyEntriesPage';
 import PayrollPage from './pages/PayrollPage';
 import JobCostingPage from './pages/JobCostingPage';
+import LocalPayrollPage from './pages/LocalPayrollPage';
 import ManageEmployeesPage from './pages/ManageEmployeesPage';
 import ManageUsers from './pages/ManageUsers';
 import Settings from './pages/Settings';
@@ -41,7 +42,7 @@ function HomeRedirect() {
 function PayrollGate({ children }) {
   const { paychexEnabled } = useAppConfig();
   if (!paychexEnabled) {
-    return <Navigate to="/admin/employees" replace />;
+    return <Navigate to="/local-payroll" replace />;
   }
   return children;
 }
@@ -117,6 +118,16 @@ export default function App() {
             <PayrollGate>
               <PayrollPage />
             </PayrollGate>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/local-payroll"
+        element={
+          <ProtectedRoute requireAdmin>
+            <NonPaychexGate>
+              <LocalPayrollPage />
+            </NonPaychexGate>
           </ProtectedRoute>
         }
       />

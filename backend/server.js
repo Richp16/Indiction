@@ -61,6 +61,7 @@ app.get(
   summaryRoutes.exportMyEntriesCsv
 );
 app.use('/api/payroll', require('./routes/payroll'));
+app.use('/api/local-payroll', require('./routes/localPayroll'));
 app.use('/api/job-costing', require('./routes/jobCosting'));
 app.use('/api/submit', submitRoutes);
 app.use('/api/users', usersRoutes);

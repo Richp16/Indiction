@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useEditLock } from '../context/EditLockContext';
 import { apiDelete, apiGet, apiPatch, apiPost } from '../api/client';
@@ -11,6 +12,8 @@ const emptyWorker = {
   laborClassificationId: '',
   workerType: 'J',
   isActive: true,
+  address: '',
+  identifyingLast4: '',
 };
 
 const emptyPeriod = {
@@ -60,11 +63,15 @@ export default function ManageEmployeesPage() {
     setMessage('');
     try {
       await ensureLock();
+      const payload = {
+        ...workerForm,
+        standardRate: workerForm.standardRate === '' ? null : workerForm.standardRate,
+      };
       if (editingWorkerId) {
-        await apiPatch(`/api/workers/${editingWorkerId}`, workerForm, token);
+        await apiPatch(`/api/workers/${editingWorkerId}`, payload, token);
         setMessage('Worker updated');
       } else {
-        await apiPost('/api/workers', workerForm, token);
+        await apiPost('/api/workers', payload, token);
         setMessage('Worker created');
       }
       setWorkerForm(emptyWorker);
@@ -89,6 +96,21 @@ export default function ManageEmployeesPage() {
     }
   }
 
+  async function setPeriodStatus(id, status) {
+    try {
+      await ensureLock();
+      if (status === 'OPEN') {
+        const ok = window.confirm('Reopen this period? Confirm you intend to edit finalized payroll.');
+        if (!ok) return;
+      }
+      await apiPatch(`/api/pay-periods/${id}`, { status }, token);
+      setMessage(`Period status → ${status}`);
+      await loadData();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function deletePeriod(id) {
     if (!window.confirm('Delete this pay period?')) return;
     try {
@@ -104,7 +126,10 @@ export default function ManageEmployeesPage() {
   return (
     <div>
       <h1>Manage Employees</h1>
-      <p>Workers and pay periods for Non-Paychex mode.</p>
+      <p>
+        Workers and pay periods for Non-Paychex mode.{' '}
+        <Link to="/local-payroll">Open Local Payroll</Link>
+      </p>
       {message && <p style={{ color: 'green' }}>{message}</p>}
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
       {!isLockHolder && (
@@ -126,7 +151,7 @@ export default function ManageEmployeesPage() {
         <div style={{ display: 'grid', gap: '1rem' }}>
           <div style={{ display: 'grid', gap: 8, maxWidth: 480 }}>
             <input
-              placeholder="Employee code"
+              placeholder="Employee code (unique)"
               value={workerForm.employeeCode}
               onChange={(e) => setWorkerForm((s) => ({ ...s, employeeCode: e.target.value }))}
             />
@@ -145,6 +170,17 @@ export default function ManageEmployeesPage() {
               value={workerForm.standardRate}
               onChange={(e) => setWorkerForm((s) => ({ ...s, standardRate: e.target.value }))}
             />
+            <input
+              placeholder="Address (optional, WH-347)"
+              value={workerForm.address}
+              onChange={(e) => setWorkerForm((s) => ({ ...s, address: e.target.value }))}
+            />
+            <input
+              placeholder="Identifying last 4 (optional)"
+              maxLength={4}
+              value={workerForm.identifyingLast4}
+              onChange={(e) => setWorkerForm((s) => ({ ...s, identifyingLast4: e.target.value }))}
+            />
             <select
               value={workerForm.laborClassificationId}
               onChange={(e) =>
@@ -158,6 +194,21 @@ export default function ManageEmployeesPage() {
                 </option>
               ))}
             </select>
+            <select
+              value={workerForm.workerType}
+              onChange={(e) => setWorkerForm((s) => ({ ...s, workerType: e.target.value }))}
+            >
+              <option value="J">Journeyman (J)</option>
+              <option value="RA">Apprentice (RA)</option>
+            </select>
+            <label>
+              <input
+                type="checkbox"
+                checked={workerForm.isActive}
+                onChange={(e) => setWorkerForm((s) => ({ ...s, isActive: e.target.checked }))}
+              />{' '}
+              Active (inactive workers stay in history, leave new-entry selectors)
+            </label>
             <button type="button" onClick={saveWorker} disabled={!isLockHolder}>
               {editingWorkerId ? 'Update worker' : 'Add worker'}
             </button>
@@ -195,6 +246,8 @@ export default function ManageEmployeesPage() {
                           laborClassificationId: w.laborClassificationId || '',
                           workerType: w.workerType || 'J',
                           isActive: w.isActive,
+                          address: w.address || '',
+                          identifyingLast4: w.identifyingLast4 || '',
                         });
                       }}
                     >
@@ -211,26 +264,38 @@ export default function ManageEmployeesPage() {
       {tab === 'periods' && (
         <div style={{ display: 'grid', gap: '1rem' }}>
           <div style={{ display: 'grid', gap: 8, maxWidth: 480 }}>
-            <input
-              type="date"
-              value={periodForm.startDate}
-              onChange={(e) => setPeriodForm((s) => ({ ...s, startDate: e.target.value }))}
-            />
-            <input
-              type="date"
-              value={periodForm.endDate}
-              onChange={(e) => setPeriodForm((s) => ({ ...s, endDate: e.target.value }))}
-            />
-            <input
-              type="date"
-              value={periodForm.submitByDate}
-              onChange={(e) => setPeriodForm((s) => ({ ...s, submitByDate: e.target.value }))}
-            />
-            <input
-              type="date"
-              value={periodForm.payDate}
-              onChange={(e) => setPeriodForm((s) => ({ ...s, payDate: e.target.value }))}
-            />
+            <label>
+              Start
+              <input
+                type="date"
+                value={periodForm.startDate}
+                onChange={(e) => setPeriodForm((s) => ({ ...s, startDate: e.target.value }))}
+              />
+            </label>
+            <label>
+              End
+              <input
+                type="date"
+                value={periodForm.endDate}
+                onChange={(e) => setPeriodForm((s) => ({ ...s, endDate: e.target.value }))}
+              />
+            </label>
+            <label>
+              Submit by
+              <input
+                type="date"
+                value={periodForm.submitByDate}
+                onChange={(e) => setPeriodForm((s) => ({ ...s, submitByDate: e.target.value }))}
+              />
+            </label>
+            <label>
+              Pay date
+              <input
+                type="date"
+                value={periodForm.payDate}
+                onChange={(e) => setPeriodForm((s) => ({ ...s, payDate: e.target.value }))}
+              />
+            </label>
             <button type="button" onClick={savePeriod} disabled={!isLockHolder}>
               Add pay period
             </button>
@@ -249,7 +314,25 @@ export default function ManageEmployeesPage() {
                 <tr key={p.id}>
                   <td>{p.label}</td>
                   <td>{p.status}</td>
-                  <td>
+                  <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {p.status !== 'CLOSED' && (
+                      <button
+                        type="button"
+                        disabled={!isLockHolder}
+                        onClick={() => setPeriodStatus(p.id, 'CLOSED')}
+                      >
+                        Close
+                      </button>
+                    )}
+                    {p.status !== 'OPEN' && (
+                      <button
+                        type="button"
+                        disabled={!isLockHolder}
+                        onClick={() => setPeriodStatus(p.id, 'OPEN')}
+                      >
+                        Reopen
+                      </button>
+                    )}
                     <button type="button" onClick={() => deletePeriod(p.id)} disabled={!isLockHolder}>
                       Delete
                     </button>

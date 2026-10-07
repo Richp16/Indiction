@@ -34,13 +34,21 @@ async function loadReferenceData() {
 
   const workersByCode = new Map();
   const workersByName = new Map();
+  const nameCounts = new Map();
   for (const worker of workersResult.rows) {
     if (worker.employee_code) {
       workersByCode.set(String(worker.employee_code).trim().toLowerCase(), worker);
     }
-    const nameKey = normalizeName(`${worker.last_name}, ${worker.first_name}`);
-    workersByName.set(nameKey, worker);
-    workersByName.set(normalizeName(`${worker.first_name} ${worker.last_name}`), worker);
+    const keys = [
+      normalizeName(`${worker.last_name}, ${worker.first_name}`),
+      normalizeName(`${worker.first_name} ${worker.last_name}`),
+    ];
+    for (const nameKey of keys) {
+      nameCounts.set(nameKey, (nameCounts.get(nameKey) || 0) + 1);
+      if (!workersByName.has(nameKey)) {
+        workersByName.set(nameKey, worker);
+      }
+    }
   }
 
   const sitesByCode = new Map();
@@ -50,7 +58,7 @@ async function loadReferenceData() {
     sitesByName.set(normalizeName(site.name), site);
   }
 
-  return { workersByCode, workersByName, sitesByCode, sitesByName };
+  return { workersByCode, workersByName, nameCounts, sitesByCode, sitesByName };
 }
 
 function resolveWorker(row, refs) {
@@ -71,6 +79,12 @@ function resolveWorker(row, refs) {
   }
 
   for (const key of nameKeys) {
+    if ((refs.nameCounts.get(key) || 0) > 1) {
+      return {
+        status: 'ambiguous',
+        message: `Ambiguous worker name "${row.workerName || key}" — use employee_code`,
+      };
+    }
     const match = refs.workersByName.get(key);
     if (match) {
       return { status: 'matched', worker: match, matchType: 'name' };
@@ -110,12 +124,21 @@ async function previewImport(buffer, { filename = 'import.xlsx' } = {}) {
   const unmatchedWorkers = [];
   const unmatchedSites = [];
   const rowErrors = [...parsed.errors];
+  const seenKeys = new Map();
 
   for (const row of parsed.rows) {
     if (row.errors.length) continue;
 
     const workerResult = resolveWorker(row, refs);
     const siteResult = resolveJobSite(row, refs);
+
+    if (workerResult.status === 'ambiguous') {
+      rowErrors.push({
+        rowNumber: row.rowNumber,
+        reasons: [workerResult.message],
+      });
+      continue;
+    }
 
     if (workerResult.status === 'unmatched') {
       unmatchedWorkers.push({
@@ -126,6 +149,25 @@ async function previewImport(buffer, { filename = 'import.xlsx' } = {}) {
     if (siteResult.status === 'unmatched') {
       unmatchedSites.push({ rowNumber: row.rowNumber, jobSiteRaw: siteResult.jobSiteRaw });
     }
+
+    const dupKey = [
+      row.dateWorked,
+      row.employeeCode || row.workerName || '',
+      row.jobSiteRaw,
+      row.payCode,
+    ]
+      .join('|')
+      .toLowerCase();
+    if (seenKeys.has(dupKey)) {
+      rowErrors.push({
+        rowNumber: row.rowNumber,
+        reasons: [
+          `Duplicate of row ${seenKeys.get(dupKey)} in file (same date/worker/site/pay_code)`,
+        ],
+      });
+      continue;
+    }
+    seenKeys.set(dupKey, row.rowNumber);
 
     let payPeriod = null;
     try {
@@ -143,6 +185,7 @@ async function previewImport(buffer, { filename = 'import.xlsx' } = {}) {
       dateWorked: row.dateWorked,
       payCode: row.payCode,
       hours: row.hours,
+      reimbursementAmount: row.reimbursementAmount || 0,
       workerId: workerResult.worker?.id || null,
       workerName: workerResult.worker
         ? `${workerResult.worker.last_name}, ${workerResult.worker.first_name}`
@@ -178,6 +221,11 @@ async function previewImport(buffer, { filename = 'import.xlsx' } = {}) {
     unmatchedWorkers,
     unmatchedSites,
     errors: rowErrors,
+    duplicatePolicy: {
+      merge: 'Upsert via daily entry save (may add hours depending on pay code)',
+      replace: 'Delete existing same worker/site/date/pay_code then insert',
+      skip: 'Use replace=false and omit createWorkers for unmatched rows',
+    },
   };
 }
 
@@ -259,6 +307,7 @@ async function commitImport({
         payCode: row.payCode,
         dateWorked: row.dateWorked,
         hours: row.hours,
+        reimbursementAmount: row.reimbursementAmount || 0,
         payPeriodId: payPeriod.id,
         enteredBy,
       });

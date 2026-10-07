@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useAppConfig } from '../context/AppConfigContext';
 import { apiGet } from '../api/client';
 import PayPeriodSelector from '../components/PayPeriodSelector';
 import { downloadFile } from '../utils/downloadFile';
@@ -41,7 +42,7 @@ function buildJobCostingFilename(jobSiteName, payPeriodEnd) {
   return `JobCosting-${site}-${end}.csv`;
 }
 
-function buildJobCostingCsv(rows, summary) {
+function buildJobCostingCsv(rows, summary, { includeRecurring = true } = {}) {
   const headers = [
     'Worker',
     'Worker ID',
@@ -65,7 +66,6 @@ function buildJobCostingCsv(rows, summary) {
     );
   }
 
-  // Labeled totals rows (same pattern as Aging AP/AR export).
   lines.push('');
   lines.push(['Totals', '', '', '', '', ''].join(','));
   lines.push(
@@ -107,16 +107,18 @@ function buildJobCostingCsv(rows, summary) {
       escapeCsv(summary.internalReimbursements),
     ].join(',')
   );
-  lines.push(
-    [
-      'Paychex Recurring Reimbursements',
-      '',
-      '',
-      '',
-      '',
-      escapeCsv(summary.paychexRecurringReimbursements),
-    ].join(',')
-  );
+  if (includeRecurring) {
+    lines.push(
+      [
+        'Recurring Reimbursements',
+        '',
+        '',
+        '',
+        '',
+        escapeCsv(summary.paychexRecurringReimbursements),
+      ].join(',')
+    );
+  }
   lines.push(
     [
       'Total Reimbursements',
@@ -155,6 +157,7 @@ const emptySummary = {
 
 export default function JobCostingPage() {
   const { token } = useAuth();
+  const { paychexEnabled } = useAppConfig();
   const [periods, setPeriods] = useState([]);
   const [selectedPayPeriodId, setSelectedPayPeriodId] = useState('');
   const [jobSites, setJobSites] = useState([]);
@@ -178,10 +181,12 @@ export default function JobCostingPage() {
     setError('');
     try {
       const [periodsData, sitesData] = await Promise.all([
-        apiGet('/api/payroll/pay-periods', token),
+        apiGet('/api/pay-periods', token),
         apiGet('/api/job-sites', token),
       ]);
-      const nextPeriods = periodsData.periods || [];
+      const nextPeriods = Array.isArray(periodsData)
+        ? periodsData
+        : periodsData.periods || [];
       setPeriods(nextPeriods);
       setJobSites((sitesData || []).filter((site) => site.is_active !== false));
 
@@ -255,7 +260,7 @@ export default function JobCostingPage() {
     setExporting(true);
     setError('');
     try {
-      const csv = buildJobCostingCsv(rows, summary);
+      const csv = buildJobCostingCsv(rows, summary, { includeRecurring: paychexEnabled });
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
       const filename = buildJobCostingFilename(
         jobSiteMeta?.name,
@@ -357,8 +362,13 @@ export default function JobCostingPage() {
               <p style={statValueStyle}>{formatCurrency(summary.totalReimbursements)}</p>
               <p style={statSubtextStyle}>
                 Internal (Daily Entry): {formatCurrency(summary.internalReimbursements)}
-                <br />
-                Paychex recurring: {formatCurrency(summary.paychexRecurringReimbursements)}
+                {paychexEnabled && (
+                  <>
+                    <br />
+                    Recurring (provider sync):{' '}
+                    {formatCurrency(summary.paychexRecurringReimbursements)}
+                  </>
+                )}
               </p>
             </div>
             <div style={statCardStyle}>

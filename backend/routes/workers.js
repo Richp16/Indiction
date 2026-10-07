@@ -91,6 +91,8 @@ router.get('/admin', requireRole('system_admin', 'payroll_admin'), async (_req, 
          w.standard_rate,
          w.worker_type,
          w.labor_classification_id,
+         w.address,
+         w.identifying_last4,
          lc.name AS labor_classification_name
        FROM workers w
        LEFT JOIN labor_classifications lc ON w.labor_classification_id = lc.id
@@ -107,6 +109,8 @@ router.get('/admin', requireRole('system_admin', 'payroll_admin'), async (_req, 
         workerType: row.worker_type,
         laborClassificationId: row.labor_classification_id,
         laborClassificationName: row.labor_classification_name || null,
+        address: row.address || null,
+        identifyingLast4: row.identifying_last4 || null,
       }))
     );
   } catch (error) {
@@ -124,6 +128,8 @@ router.post('/', requireRole('system_admin', 'payroll_admin'), requireGlobalEdit
       laborClassificationId,
       workerType = 'J',
       isActive = true,
+      address,
+      identifyingLast4,
     } = req.body || {};
 
     if (!firstName || !lastName) {
@@ -131,6 +137,11 @@ router.post('/', requireRole('system_admin', 'payroll_admin'), requireGlobalEdit
     }
     if (!['J', 'RA'].includes(workerType)) {
       return res.status(400).json({ message: 'workerType must be J or RA' });
+    }
+    if (identifyingLast4 != null && identifyingLast4 !== '') {
+      if (!/^\d{4}$/.test(String(identifyingLast4))) {
+        return res.status(400).json({ message: 'identifyingLast4 must be exactly 4 digits' });
+      }
     }
 
     let classificationId = null;
@@ -158,8 +169,10 @@ router.post('/', requireRole('system_admin', 'payroll_admin'), requireGlobalEdit
          standard_rate,
          labor_classification_id,
          worker_type,
-         is_active
-       ) VALUES (NULL, $1, $2, $3, $4, $5, $6, $7)
+         is_active,
+         address,
+         identifying_last4
+       ) VALUES (NULL, $1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING
          id,
          employee_code,
@@ -168,7 +181,9 @@ router.post('/', requireRole('system_admin', 'payroll_admin'), requireGlobalEdit
          is_active,
          standard_rate,
          worker_type,
-         labor_classification_id`,
+         labor_classification_id,
+         address,
+         identifying_last4`,
       [
         employeeCode || null,
         firstName,
@@ -177,6 +192,8 @@ router.post('/', requireRole('system_admin', 'payroll_admin'), requireGlobalEdit
         classificationId,
         workerType,
         Boolean(isActive),
+        address || null,
+        identifyingLast4 || null,
       ]
     );
 
@@ -190,8 +207,13 @@ router.post('/', requireRole('system_admin', 'payroll_admin'), requireGlobalEdit
       standardRate: worker.standard_rate != null ? parseFloat(worker.standard_rate) : null,
       workerType: worker.worker_type,
       laborClassificationId: worker.labor_classification_id,
+      address: worker.address || null,
+      identifyingLast4: worker.identifying_last4 || null,
     });
   } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ message: 'employee_code must be unique' });
+    }
     res.status(500).json({ message: error.message });
   }
 });
@@ -457,6 +479,8 @@ router.patch('/:id', requireRole('system_admin', 'payroll_admin'), requireGlobal
       standardRate,
       laborClassificationId,
       isActive,
+      address,
+      identifyingLast4,
     } = req.body || {};
 
     const fields = [];
@@ -489,6 +513,17 @@ router.patch('/:id', requireRole('system_admin', 'payroll_admin'), requireGlobal
     if (isActive !== undefined) {
       values.push(Boolean(isActive));
       fields.push(`is_active = $${values.length}`);
+    }
+    if (address !== undefined) {
+      values.push(address || null);
+      fields.push(`address = $${values.length}`);
+    }
+    if (identifyingLast4 !== undefined) {
+      if (identifyingLast4 != null && identifyingLast4 !== '' && !/^\d{4}$/.test(String(identifyingLast4))) {
+        return res.status(400).json({ message: 'identifyingLast4 must be exactly 4 digits' });
+      }
+      values.push(identifyingLast4 || null);
+      fields.push(`identifying_last4 = $${values.length}`);
     }
     if (laborClassificationId !== undefined) {
       let classificationId = null;
@@ -527,7 +562,9 @@ router.patch('/:id', requireRole('system_admin', 'payroll_admin'), requireGlobal
          is_active,
          standard_rate,
          worker_type,
-         labor_classification_id`,
+         labor_classification_id,
+         address,
+         identifying_last4`,
       values
     );
 
@@ -545,8 +582,13 @@ router.patch('/:id', requireRole('system_admin', 'payroll_admin'), requireGlobal
       standardRate: worker.standard_rate != null ? parseFloat(worker.standard_rate) : null,
       workerType: worker.worker_type,
       laborClassificationId: worker.labor_classification_id,
+      address: worker.address || null,
+      identifyingLast4: worker.identifying_last4 || null,
     });
   } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ message: 'employee_code must be unique' });
+    }
     res.status(500).json({ message: error.message });
   }
 });
