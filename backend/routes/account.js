@@ -1,7 +1,7 @@
 const express = require('express');
 const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
-const { getAppConfig } = require('../middleware/paychexGuard');
+const { getAppConfig, assertModeSelectionAllowed } = require('../middleware/paychexGuard');
 
 const router = express.Router();
 
@@ -17,6 +17,7 @@ router.get('/mode', async (_req, res) => {
 router.post('/setup', requireRole('system_admin', 'payroll_admin'), async (req, res) => {
   try {
     const paychexEnabled = req.body?.paychexEnabled !== false;
+    await assertModeSelectionAllowed(paychexEnabled);
     const existing = await query(
       `SELECT id FROM company_settings ORDER BY id LIMIT 1`
     );
@@ -46,7 +47,10 @@ router.post('/setup', requireRole('system_admin', 'payroll_admin'), async (req, 
       integrationConfigured: row.integration_configured === true,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({
+      message: error.message,
+      code: error.code || undefined,
+    });
   }
 });
 

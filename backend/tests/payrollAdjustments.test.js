@@ -189,7 +189,7 @@ describe('payrollAdjustments persistence (integration)', () => {
     assert.equal(reimb.Hours, '');
     assert.equal(hourly['Check Seq Number'], reimb['Check Seq Number']);
 
-    const { csvString } = generateSPICSV(workerRows, '70205967');
+    const { csvString } = generateSPICSV(workerRows, '00000000');
     assert.equal(csvString.split('\n')[0], EXPORT_CSV_HEADERS.join(','));
     assert.match(csvString, new RegExp(String(baseReimb)));
     assert.doesNotMatch(csvString, /Short Pay/i);

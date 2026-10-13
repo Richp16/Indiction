@@ -1,6 +1,6 @@
 /**
  * Legacy WH-347 PDF builder using page.drawText() at hardcoded coordinates.
- * Kept as a rollback path when USE_NEW_WH347_EXPORT=false.
+ * Unused by the export route. The live export fills the WH-347 form.
  */
 
 const fs = require('fs');

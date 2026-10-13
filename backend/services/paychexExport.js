@@ -25,9 +25,13 @@ const EXPORT_CSV_HEADERS = [
   'Labor Override',
 ];
 
-/** Numeric Company ID on SPI rows — same value used in download filenames. */
+/**
+ * Numeric Company ID written on SPI import rows.
+ * This is not the API company id (PAYCHEX_COMPANY_ID).
+ */
 const PAYCHEX_COMPANY_ID =
-  process.env.PAYCHEX_CLIENT_CODE || process.env.PAYCHEX_SPI_COMPANY_ID || '70205967';
+  String(process.env.PAYCHEX_CLIENT_CODE || '').trim() ||
+  String(process.env.PAYCHEX_SPI_COMPANY_ID || '').trim();
 
 const OT_EARNINGS_MULTIPLIER = 1.5;
 const DT_EARNINGS_MULTIPLIER = 2;
@@ -310,13 +314,14 @@ async function generateSPIRows(payPeriodId) {
   }
 
   const payPeriod = periodResult.rows[0];
-  const clientCode = process.env.PAYCHEX_CLIENT_CODE || PAYCHEX_COMPANY_ID;
+  const clientCode = PAYCHEX_COMPANY_ID;
   const warnings = [];
 
-  if (!process.env.PAYCHEX_CLIENT_CODE) {
+  if (!clientCode) {
     warnings.push({
       type: 'warning',
-      message: 'PAYCHEX_CLIENT_CODE is not configured — using default Company ID on SPI rows',
+      message:
+        'PAYCHEX_CLIENT_CODE is not set. SPI Company ID cells will be blank until you set PAYCHEX_CLIENT_CODE or PAYCHEX_SPI_COMPANY_ID.',
     });
   }
 

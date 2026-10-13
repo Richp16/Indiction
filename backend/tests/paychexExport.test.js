@@ -91,7 +91,7 @@ describe('paychexExport Paychex_Import SPI shape', () => {
     const { csvString } = generateSPICSV(
       [
         {
-          'Company ID': '70205967',
+          'Company ID': '00000000',
           'Worker ID': '11',
           Org: '',
           'Job Number': '',
@@ -110,13 +110,13 @@ describe('paychexExport Paychex_Import SPI shape', () => {
           'Labor Override': '',
         },
       ],
-      '70205967'
+      '00000000'
     );
     const lines = csvString.split('\n');
     assert.equal(lines[0], EXPECTED_HEADER);
     assert.equal(
       lines[1],
-      '70205967,11,,,,Hourly,20,,40,,,,1,,,,'
+      '00000000,11,,,,Hourly,20,,40,,,,1,,,,'
     );
   });
 
@@ -326,7 +326,7 @@ describe('generateSPIRows pay-component rows (integration)', () => {
     assert.equal(reimb['Check Seq Number'], seq);
 
     for (const row of workerRows) {
-      assert.equal(row['Company ID'], PAYCHEX_COMPANY_ID || process.env.PAYCHEX_CLIENT_CODE || '70205967');
+      assert.equal(row['Company ID'], PAYCHEX_COMPANY_ID);
       assert.equal(row.Org, '');
       assert.equal(row['Job Number'], '');
       assert.equal(row['Job Name'], '');

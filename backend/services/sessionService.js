@@ -13,15 +13,13 @@ const { query } = require('../db');
 const { releaseLock } = require('./editLockService');
 
 /** Idle seconds without heartbeat before the session is treated as expired. */
-const SESSION_IDLE_SECONDS = Number(process.env.SESSION_IDLE_SECONDS || 5 * 60);
+const SESSION_IDLE_SECONDS = 5 * 60;
 
 /**
  * After logout-beacon, allow this many seconds for a refresh heartbeat
  * before treating the session as closed.
  */
-const SESSION_CLOSE_GRACE_SECONDS = Number(
-  process.env.SESSION_CLOSE_GRACE_SECONDS || 15
-);
+const SESSION_CLOSE_GRACE_SECONDS = 15;
 
 function isSessionStale(row, now = Date.now()) {
   if (!row?.last_activity_at) return true;

@@ -2,12 +2,9 @@
  * Live probe for Paychex checks endpoints (Postman-aligned Accept: star/star).
  *
  * Usage:
- *   PAYCHEX_DEBUG=1 node scripts/probe-paychex-checks.js
- *   node scripts/probe-paychex-checks.js --worker 004WOHNWMFGQKR2RLNJS --period 1140037241110861
+ *   node scripts/probe-paychex-checks.js --company COMPANY_ID --worker WORKER_ID --period PAY_PERIOD_ID
  */
 require('dotenv').config();
-
-process.env.PAYCHEX_DEBUG = process.env.PAYCHEX_DEBUG || '1';
 
 const {
   getCompanyChecksByPayPeriod,
@@ -16,10 +13,6 @@ const {
 const { companyId } = require('../config/paychexApi');
 const { formatPaychexErrorForLog } = require('../services/paychexErrors');
 
-const SUPPORT_COMPANY_ID = '004WOHNWM70Z2EDFHRDY';
-const SUPPORT_WORKER_ID = '004WOHNWMFGQKR2RLNJS';
-const SUPPORT_PAY_PERIOD_ID = '1140037241110861';
-
 function arg(name, fallback) {
   const idx = process.argv.indexOf(`--${name}`);
   if (idx >= 0 && process.argv[idx + 1]) return process.argv[idx + 1];
@@ -27,16 +20,19 @@ function arg(name, fallback) {
 }
 
 async function main() {
-  const cid = arg('company', process.env.PAYCHEX_COMPANY_ID || SUPPORT_COMPANY_ID);
-  const workerId = arg('worker', SUPPORT_WORKER_ID);
-  const payPeriodId = arg('period', SUPPORT_PAY_PERIOD_ID);
+  const cid = arg('company', process.env.PAYCHEX_COMPANY_ID || '');
+  const workerId = arg('worker', '');
+  const payPeriodId = arg('period', '');
+  if (!cid || !workerId || !payPeriodId) {
+    console.error('Pass --company, --worker, and --period. No sample Paychex ids are built in.');
+    process.exit(1);
+  }
 
   console.log('Probe config', {
     companyId: cid,
     envCompanyId: companyId() || null,
     workerId,
     payPeriodId,
-    PAYCHEX_DEBUG: process.env.PAYCHEX_DEBUG,
   });
 
   console.log('\n=== Worker checks ===');

@@ -8,7 +8,7 @@
 const { pool, query } = require('../db');
 
 /** Seconds without heartbeat before another user may claim the lock. */
-const LOCK_TIMEOUT_SECONDS = Number(process.env.EDIT_LOCK_TIMEOUT_SECONDS || 90);
+const LOCK_TIMEOUT_SECONDS = 90;
 
 function isLockExpired(row, now = Date.now()) {
   if (!row?.last_heartbeat_at) return true;

@@ -122,37 +122,6 @@ function calculateBiweeklyGrossThisJob(payPeriodHoursRows, workerId, rate) {
   return calculateGrossThisJob(workerEntries, rate);
 }
 
-function logSupplementEstimateDebug({
-  worker,
-  weekStart,
-  weekEnd,
-  payPeriodStart,
-  payPeriodEnd,
-  grossThisJob,
-  grossAllWork,
-  fica,
-  federalWithholding,
-  netPay,
-}) {
-  if (process.env.CERTIFIED_PAYROLL_DEBUG !== '1') return;
-
-  console.debug(
-    '[certified-payroll/estimate]',
-    JSON.stringify({
-      worker: worker.workerName,
-      weekStart,
-      weekEnd,
-      payPeriodStart,
-      payPeriodEnd,
-      grossThisJob: roundMoney(grossThisJob).toFixed(2),
-      grossAllWork: roundMoney(grossAllWork).toFixed(2),
-      fica: roundMoney(fica).toFixed(2),
-      federalWithholding: roundMoney(federalWithholding).toFixed(2),
-      netPay: roundMoney(netPay).toFixed(2),
-    })
-  );
-}
-
 function mergeBiweeklySupplementFields(primary, fallback = {}) {
   return {
     ...primary,
@@ -928,27 +897,11 @@ async function buildSupplementRows({
       continue;
     }
 
-    const grossThisJob = calculateGrossThisJob(worker.entries, worker.rate);
     const grossAllWork = calculateBiweeklyGrossThisJob(
       payPeriodHoursRows,
       worker.workerId,
       worker.rate
     );
-    const estimate = estimateDeductions(grossAllWork);
-
-    logSupplementEstimateDebug({
-      worker,
-      weekStart,
-      weekEnd,
-      payPeriodStart: periodWeeks.payPeriodStart,
-      payPeriodEnd: periodWeeks.payPeriodEnd,
-      grossThisJob,
-      grossAllWork,
-      fica: estimate.fica,
-      federalWithholding: estimate.federalWithholding,
-      netPay: estimate.netPay,
-    });
-
     const supplementRow = buildSupplementEstimate({ grossAllWork, site, worker });
     needsManualWithholding = true;
     hasEstimated = true;

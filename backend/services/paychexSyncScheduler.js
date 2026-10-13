@@ -1,8 +1,7 @@
 const { runPayPeriodSync, runReferenceDataSync } = require('./paychexSync');
 const { isPaychexEnabled } = require('../middleware/paychexGuard');
 
-const SYNC_INTERVAL_MS =
-  Number(process.env.PAYCHEX_SYNC_INTERVAL_MS) || 6 * 60 * 60 * 1000; // 4x/day
+const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 4x/day
 
 let syncInProgress = false;
 

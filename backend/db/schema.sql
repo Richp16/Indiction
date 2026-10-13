@@ -1,3 +1,7 @@
+-- Current schema snapshot. A new database should be created with `npm run migrate`,
+-- which applies this file and records db/migrations as already applied.
+-- Do not replay those historical migrations on top of this file.
+
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 CREATE TABLE IF NOT EXISTS users (

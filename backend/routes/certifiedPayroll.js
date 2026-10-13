@@ -16,7 +16,6 @@ const {
 } = require('../services/certifiedPayrollService');
 const { fetchChecksForWorkers } = require('../services/paychexCheckData');
 const { fillWh347Form } = require('../services/wh347FormFill');
-const { buildWh347PdfLegacy } = require('../services/wh347PdfLegacy');
 const { requireGlobalEditLock } = require('../middleware/editLock');
 const { requirePaychexEnabled } = require('../middleware/paychexGuard');
 
@@ -26,16 +25,6 @@ router.use(requireRole('system_admin', 'payroll_admin'));
 function dayKey(dateStr) {
   const date = new Date(`${dateStr}T12:00:00`);
   return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()];
-}
-
-/**
- * Feature flag: USE_NEW_WH347_EXPORT (default true).
- * Set to 0/false/off to roll back to buildWh347PdfLegacy without a code change.
- */
-function useNewWh347Export() {
-  const raw = process.env.USE_NEW_WH347_EXPORT;
-  if (raw == null || raw === '') return true;
-  return !['0', 'false', 'no', 'off'].includes(String(raw).trim().toLowerCase());
 }
 
 function parseFlattenFlag(req) {
@@ -357,48 +346,32 @@ router.post('/export', requireGlobalEditLock, async (req, res) => {
     const supplementsByWorker = buildSupplementsByWorker(supplementsResult.rows, weekEndingDate);
     const payrollNumber = (site.certified_payroll_count || 0) + 1;
     const flatten = parseFlattenFlag(req);
-    const useNew = useNewWh347Export();
     // Request body drives Prime vs Subcontractor checkbox (default: prime).
     const isPrime = req.body?.isPrime !== false && req.body?.isPrime !== 'false';
 
-    let pdfBuffer;
-    if (useNew) {
-      console.log(
-        `[certified-payroll/export] path=new-acroform workers=${workers.length} flatten=${flatten}`
-      );
-      pdfBuffer = await fillWh347Form({
-        project: {
-          name: site.name,
-          job_code: site.job_code,
-          contract_number: site.contract_number,
-          address: site.address,
-          wage_determination_no: pickWageDetermination(site, supplementsByWorker),
-          start_date: site.start_date
-            ? String(site.start_date).split('T')[0]
-            : null,
-        },
-        company,
-        weekEndingDate,
-        payrollNumber,
-        workers,
-        supplementsByWorker,
-        flatten,
-        isPrime,
-        isFinal: Boolean(req.body?.isFinal),
-      });
-    } else {
-      console.log(
-        `[certified-payroll/export] path=legacy-drawText workers=${workers.length}`
-      );
-      pdfBuffer = await buildWh347PdfLegacy({
-        site,
-        company,
-        weekEndingDate,
-        payrollNumber,
-        workers,
-        supplementsByWorker,
-      });
-    }
+    console.log(
+      `[certified-payroll/export] workers=${workers.length} flatten=${flatten}`
+    );
+    const pdfBuffer = await fillWh347Form({
+      project: {
+        name: site.name,
+        job_code: site.job_code,
+        contract_number: site.contract_number,
+        address: site.address,
+        wage_determination_no: pickWageDetermination(site, supplementsByWorker),
+        start_date: site.start_date
+          ? String(site.start_date).split('T')[0]
+          : null,
+      },
+      company,
+      weekEndingDate,
+      payrollNumber,
+      workers,
+      supplementsByWorker,
+      flatten,
+      isPrime,
+      isFinal: Boolean(req.body?.isFinal),
+    });
 
     await query(
       `UPDATE job_sites

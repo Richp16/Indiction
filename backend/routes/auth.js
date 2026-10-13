@@ -16,8 +16,7 @@ const {
 const router = express.Router();
 
 // Slightly above the 6-hour scheduled cadence to avoid redundant login triggers.
-const LOGIN_SYNC_STALE_THRESHOLD_MS =
-  Number(process.env.LOGIN_SYNC_STALE_THRESHOLD_MS) || 7 * 60 * 60 * 1000;
+const LOGIN_SYNC_STALE_THRESHOLD_MS = 7 * 60 * 60 * 1000;
 
 async function triggerSyncIfStale() {
   if (!(await isPaychexEnabled())) return;
@@ -64,7 +63,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    const result = await query('SELECT * FROM users WHERE email = $1', [email]);
+    const result = await query('SELECT * FROM users WHERE lower(email) = lower($1)', [email]);
     const user = result.rows[0];
 
     if (!user) {

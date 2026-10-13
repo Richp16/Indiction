@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('../db');
 const { requireRole } = require('../middleware/roleGuard');
 const { requireGlobalEditLock } = require('../middleware/editLock');
+const { assertModeSelectionAllowed } = require('../middleware/paychexGuard');
 
 const router = express.Router();
 
@@ -84,6 +85,21 @@ router.patch(
       if (paychexEnabledValue === undefined) {
         paychexEnabledValue = true;
       }
+      paychexEnabledValue = Boolean(paychexEnabledValue);
+
+      let currentEnabled = false;
+      if (existing.rows.length > 0) {
+        const current = await query(
+          `SELECT paychex_enabled FROM company_settings WHERE id = $1`,
+          [existing.rows[0].id]
+        ).catch(() => ({ rows: [] }));
+        if (typeof current.rows[0]?.paychex_enabled === 'boolean') {
+          currentEnabled = current.rows[0].paychex_enabled;
+        }
+      }
+      if (existing.rows.length === 0 || currentEnabled !== paychexEnabledValue) {
+        await assertModeSelectionAllowed(paychexEnabledValue);
+      }
 
       let result;
       if (existing.rows.length === 0) {
@@ -96,10 +112,10 @@ router.patch(
            RETURNING id, company_name, company_address, certifying_official_name,
                      certifying_official_title, phone, email,
                      paychex_enabled, integration_configured`,
-          [...values, Boolean(paychexEnabledValue)]
+          [...values, paychexEnabledValue]
         );
       } else {
-        values.push(Boolean(paychexEnabledValue));
+        values.push(paychexEnabledValue);
         values.push(existing.rows[0].id);
         result = await query(
           `UPDATE company_settings
@@ -121,7 +137,10 @@ router.patch(
 
       res.json(result.rows[0]);
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      res.status(error.statusCode || 500).json({
+        message: error.message,
+        code: error.code || undefined,
+      });
     }
   }
 );

@@ -11,7 +11,7 @@ const {
   isRetryableNetworkError,
   formatPaychexErrorForLog,
 } = require('./paychexErrors');
-const { getToken, clearTokenCache, getTokenCacheInfo } = require('./paychexAuth');
+const { getToken, clearTokenCache } = require('./paychexAuth');
 
 const httpsAgent = new https.Agent({
   keepAlive: true,
@@ -31,11 +31,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isPaychexDebug() {
-  const raw = process.env.PAYCHEX_DEBUG;
-  return raw === '1' || String(raw || '').toLowerCase() === 'true';
-}
-
 function isChecksPath(path) {
   return /\/checks(?:\?|$)/.test(String(path || ''));
 }
@@ -45,50 +40,6 @@ function logGetRequest(path, extra = {}) {
     `[paychex] GET ${getPaychexBaseUrl()}${path} timeoutMs=${PAYCHEX_TIMEOUT_MS}`,
     extra.workerId ? `workerId=${extra.workerId}` : ''
   );
-}
-
-function redactAuthHeaders(headers) {
-  const out = { ...(headers || {}) };
-  if (out.Authorization) {
-    const value = String(out.Authorization);
-    out.Authorization = value.startsWith('Bearer ')
-      ? `Bearer ${value.slice(7, 15)}…(${value.length - 7} chars)`
-      : '[redacted]';
-  }
-  return out;
-}
-
-function logOutgoingRequest(method, path, headers) {
-  if (!isPaychexDebug()) return;
-  const tokenInfo = getTokenCacheInfo();
-  console.log('[paychex][DEBUG] outgoing request', {
-    method,
-    url: `${getPaychexBaseUrl()}${path}`,
-    headers: redactAuthHeaders(headers),
-    token: {
-      hasToken: tokenInfo.hasToken,
-      expiresAt: tokenInfo.expiresAt
-        ? new Date(tokenInfo.expiresAt).toISOString()
-        : null,
-      expiresInMs: tokenInfo.expiresInMs,
-      expiresInSec:
-        tokenInfo.expiresInMs != null
-          ? Math.round(tokenInfo.expiresInMs / 1000)
-          : null,
-    },
-  });
-}
-
-function logFailedResponse(path, err) {
-  if (!isPaychexDebug()) return;
-  console.error('[paychex][DEBUG] error response', {
-    path,
-    status: err.response?.status,
-    statusText: err.response?.statusText,
-    responseHeaders: err.response?.headers || null,
-    responseBody: err.response?.data ?? null,
-    mapped: formatPaychexErrorForLog(mapPaychexError(err, `GET ${path}`)),
-  });
 }
 
 /**
@@ -109,7 +60,6 @@ async function authorizedRequest(method, path, options = {}) {
     Authorization: `Bearer ${token}`,
     ...(options.headers || {}),
   };
-  logOutgoingRequest(method, path, headers);
   return paychexHttp.request({
     method,
     url: path,
@@ -130,8 +80,10 @@ async function paychexGetWithRetry(path, logContext = '', requestOptions = {}) {
       });
       return response;
     } catch (err) {
+      if (err.paychexErrorType) {
+        throw err;
+      }
       lastError = err;
-      logFailedResponse(path, err);
 
       if (err.response?.status === 401 && attempt < PAYCHEX_GET_MAX_RETRIES) {
         clearTokenCache();
@@ -214,7 +166,6 @@ async function paychexPost(path, body, logContext = '') {
     });
     return response.data;
   } catch (err) {
-    logFailedResponse(path, err);
     throw mapPaychexError(err, logContext || `POST ${path}`);
   }
 }
@@ -237,11 +188,17 @@ async function checkPaychexConnectivity() {
     };
   } catch (err) {
     const mapped = err.paychexErrorType ? err : mapPaychexError(err, 'connectivity check');
+    const logged = formatPaychexErrorForLog(mapped);
     return {
       ok: false,
-      message: `Paychex connectivity FAILED: ${mapped.message}`,
+      message: `Paychex connectivity FAILED (${logged.statusCode || logged.networkCode || logged.type || 'error'})`,
       baseUrl,
-      error: formatPaychexErrorForLog(mapped),
+      error: {
+        type: logged.type,
+        statusCode: logged.statusCode,
+        networkCode: logged.networkCode,
+        paychexErrorCode: logged.paychexErrorCode,
+      },
     };
   }
 }
@@ -257,5 +214,4 @@ module.exports = {
   isChecksPath,
   buildGetHeaders,
   CHECKS_ACCEPT,
-  isPaychexDebug,
 };

@@ -38,7 +38,10 @@ export default function SetupModePage() {
           style={{ textAlign: 'left', padding: '1rem' }}
         >
           <strong>Paychex Flex</strong>
-          <div>Sync workers, pay periods, and checks from Paychex. Export SPI payroll files.</div>
+          <div>
+            Sync workers, pay periods, and checks from Paychex. Export SPI payroll files.
+            This choice is saved only after the API credentials in backend/.env pass a connectivity check.
+          </div>
         </button>
         <button
           type="button"

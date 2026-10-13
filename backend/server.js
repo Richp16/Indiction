@@ -17,7 +17,7 @@ const certifiedPayrollRoutes = require('./routes/certifiedPayroll');
 const { startScheduledSyncs } = require('./services/paychexSyncScheduler');
 const { checkPaychexConnectivity } = require('./services/paychexHttp');
 const { startCronJobs } = require('./cron/jobs');
-const { pool } = require('./db');
+const { pool, describeDatabaseTarget } = require('./db');
 const { isPaychexEnabled } = require('./middleware/paychexGuard');
 
 const app = express();
@@ -38,6 +38,15 @@ app.use(
   })
 );
 app.use(express.json());
+
+app.get('/api/health', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', database: 'connected' });
+  } catch {
+    res.status(503).json({ status: 'error', database: 'unavailable' });
+  }
+});
 
 app.use('/api/auth', authRoutes);
 
@@ -75,15 +84,13 @@ app.use('/api/sync', require('./routes/sync'));
 app.use('/api', settingsRoutes);
 
 async function startup() {
-  // Log DATABASE_URL as seen by server.js at runtime.
-  console.log('[startup] DATABASE_URL:', process.env.DATABASE_URL);
+  console.log('[startup] database:', describeDatabaseTarget(process.env.DATABASE_URL));
 
-  // Basic DB connectivity check: run a simple SELECT 1 on startup.
   try {
-    const result = await pool.query('SELECT 1 AS ok');
-    console.log('[startup] DB connectivity OK, result:', result.rows[0]);
+    await pool.query('SELECT 1 AS ok');
+    console.log('[startup] DB connectivity OK');
   } catch (error) {
-    console.error('[startup] DB connectivity FAILED:', error);
+    console.error('[startup] DB connectivity FAILED:', error.message);
   }
 
   // Paychex connectivity and scheduled syncs (skipped in Non-Paychex mode).
@@ -93,7 +100,7 @@ async function startup() {
     if (connectivity.ok) {
       console.log(`${connectivity.message} (baseURL: ${connectivity.baseUrl})`);
     } else {
-      console.error(connectivity.message, connectivity.error);
+      console.error(connectivity.message);
     }
     startScheduledSyncs();
   } else {
